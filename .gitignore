@@ -1,0 +1,31 @@
+# Local assistant configuration
+.codex/
+AGENTS.md
+
+# Build output and packages
+build/
+**/bin/
+**/obj/
+store/out/
+store/package/
+*.exe
+*.pdb
+*.msix
+*.msixbundle
+*.appx
+*.appxbundle
+
+# Certificates and signing material
+*.pfx
+*.cer
+*.crt
+*.pem
+*.key
+*.snk
+
+# Editor and system files
+.vs/
+.idea/
+*.user
+*.suo
+Thumbs.db
