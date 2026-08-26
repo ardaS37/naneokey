@@ -1,7 +1,3 @@
-# Local assistant configuration
-.codex/
-AGENTS.md
-
 # Build output and packages
 build/
 **/bin/
