@@ -117,7 +117,7 @@ namespace NaneOkey.UI
         public string RenderText { get; set; }
     }
 
-    public sealed class MainForm : Form
+    public sealed partial class MainForm : Form
     {
         private const int BoardRows = 10;
         private const int BoardCols = 22;
@@ -130,7 +130,8 @@ namespace NaneOkey.UI
         private const int HandGapX = 1;
         private const int HandGapY = 1;
         private const int AutoMeldGapCols = 2;
-        private const string PhotonRealtimeAppId = "YOUR_PHOTON_REALTIME_APP_ID";
+        // Configure your own Photon Realtime App ID locally; never commit credentials.
+        private const string PhotonRealtimeAppId = "00000000-0000-0000-0000-000000000000";
         private Color _tahtaAcikRenk = Color.FromArgb(37, 111, 167);
         private Color _tahtaKoyuRenk = Color.FromArgb(13, 62, 118);
         private Color _matrisArkaRenk = Color.FromArgb(18, 67, 112);
@@ -157,6 +158,8 @@ namespace NaneOkey.UI
         private readonly Panel _oyunPaneli = new Panel();
         private readonly Panel _masaPaneli = new Panel();
         private readonly Panel _matrisPaneli = new Panel();
+        private readonly Panel _boardViewport = new Panel();
+        private readonly Panel _handViewport = new Panel();
         private readonly Panel _solMenusuPaneli = new Panel();
         private readonly Panel _elDisPaneli = new Panel();
         private readonly Panel _gunlukPaneli = new Panel();
@@ -167,6 +170,7 @@ namespace NaneOkey.UI
         private readonly Timer _turnTimer = new Timer();
         private readonly Timer _cayAnimasyonZamani = new Timer();
         private readonly Timer _cayUcusZamani = new Timer();
+        private readonly Timer _dragScrollTimer = new Timer();
         private readonly Tile[,] _masaSlotlari = new Tile[BoardRows, BoardCols];
         private readonly int[,] _masaYonleri = new int[BoardRows, BoardCols];
         private readonly Panel[,] _masaSlotPanelleri = new Panel[BoardRows, BoardCols];
@@ -176,6 +180,7 @@ namespace NaneOkey.UI
         private readonly Panel[,] _elSlotPanelleri = new Panel[HandRows, HandCols];
         private readonly TileView[,] _elTasGorunumleri = new TileView[HandRows, HandCols];
         private float _uiScale = 1F;
+        private readonly Dictionary<Control, int> _sideMenuOrder = new Dictionary<Control, int>();
         private int _cayAnimasyonAdimi;
         private Image _cayEmoteImage;
         private PictureBox _cayUcusGorunumu;
@@ -205,12 +210,15 @@ namespace NaneOkey.UI
         private int _animasyonToplamAdim;
         private Action _animasyonSonrasi;
         private GameSettings _currentSettings;
+        private string _matchId;
         private readonly List<RoundScoreRecord> _roundHistory = new List<RoundScoreRecord>();
         private readonly Dictionary<string, int> _totalScores = new Dictionary<string, int>();
         private readonly List<ConfettiParticle> _konfetiler = new List<ConfettiParticle>();
         private Form _logPenceresi;
         private TextBox _logPencereKutusu;
         private Form _botDebugPenceresi;
+        private ToolStripMenuItem _botDebugMenuItem;
+        private bool _botDebugEnabled;
         private TextBox _botDebugKutusu;
         private readonly List<string> _botDebugKayitlari = new List<string>();
         private bool _showingRoundScore;
@@ -236,9 +244,10 @@ namespace NaneOkey.UI
         public MainForm()
         {
             Text = "Nane Okey";
-            Width = 1420;
-            Height = 840;
-            MinimumSize = new Size(1160, 720);
+            AutoScaleMode = AutoScaleMode.None;
+            var workingArea = Screen.PrimaryScreen.WorkingArea;
+            Size = new Size(Math.Min(1420, workingArea.Width), Math.Min(840, workingArea.Height));
+            MinimumSize = new Size(Math.Min(800, workingArea.Width), Math.Min(560, workingArea.Height));
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(20, 56, 38);
             Font = new Font("Tahoma", 9F, FontStyle.Regular, GraphicsUnit.Point, 162);
@@ -285,6 +294,14 @@ namespace NaneOkey.UI
             _cayAnimasyonZamani.Tick += CayAnimasyonTimerOnTick;
             _cayUcusZamani.Interval = 18;
             _cayUcusZamani.Tick += CayUcusTimerOnTick;
+            _dragScrollTimer.Interval = 70;
+            _dragScrollTimer.Tick += delegate
+            {
+                if (_aktifSurukleme == null) return;
+                var location = Cursor.Position;
+                if (ScrollDragViewportAtEdge(_handViewport, location) || ScrollDragViewportAtEdge(_boardViewport, location))
+                    UpdateDragPreviewPosition();
+            };
             _discovery.RoomsUpdated += rooms => InvokeOnUi(() => RefreshRoomList(rooms));
             _discovery.QueryReceived += endpoint => InvokeOnUi(() => HandleDiscoveryQuery(endpoint));
 
@@ -326,12 +343,13 @@ namespace NaneOkey.UI
             var oyunMenusu = new ToolStripMenuItem("Oyun");
             oyunMenusu.DropDownItems.Add("Ana Menü", null, (_, __) => ShowHomeScreen());
             oyunMenusu.DropDownItems.Add("Yeni Oyun", null, (_, __) => ShowNewGameDialog());
+            oyunMenusu.DropDownItems.Add("Soldan Taş Al", null, (_, __) => DrawDiscardTile());
+            oyunMenusu.DropDownItems.Add("Taş At / Bitir", null, (_, __) => ShowTraditionalDiscardDialog());
             oyunMenusu.DropDownItems.Add("Çıkış", null, (_, __) => Close());
 
             var agMenusu = new ToolStripMenuItem("Ağ");
             agMenusu.DropDownItems.Add("Oda Kur", null, (_, __) => StartLanHost());
             agMenusu.DropDownItems.Add("Odaya Katıl", null, (_, __) => JoinLanHost());
-            agMenusu.DropDownItems.Add("Log", null, (_, __) => FocusLogPanel());
 
             var onlineMenusu = new ToolStripMenuItem("Online");
             onlineMenusu.DropDownItems.Add("Online Oda Kur", null, (_, __) => StartOnlineRoom());
@@ -340,20 +358,10 @@ namespace NaneOkey.UI
 
             var yardimMenusu = new ToolStripMenuItem("Yardım");
             yardimMenusu.DropDownItems.Add("Nasıl Oynanır", null, (_, __) => ShowHowToPlay());
-            yardimMenusu.DropDownItems.Add("Bot Debug", null, (_, __) => ShowBotDebugWindow());
-            yardimMenusu.DropDownItems.Add("Hakkında", null, (_, __) =>
-            {
-                var version = Assembly.GetExecutingAssembly().GetName().Version;
-                MessageBox.Show(
-                    this,
-                    "Nane Okey v" + (version != null ? version.ToString() : "?" ) + Environment.NewLine +
-                    "Copyright © Arda Saplıoğlu 2026" + Environment.NewLine +
-                    "Sapsoft" + Environment.NewLine +
-                    "sapliogluarda@gmail.com",
-                    "Hakkında",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
-            });
+            yardimMenusu.DropDownItems.Add("Günlük / Sohbet", null, (_, __) => ShowLogWindow());
+            _botDebugMenuItem = new ToolStripMenuItem("Bot Debug", null, (_, __) => ShowBotDebugWindow()) { Visible = false };
+            yardimMenusu.DropDownItems.Add(_botDebugMenuItem);
+            yardimMenusu.DropDownItems.Add("Hakkında", null, (_, __) => ShowAboutDialog());
 
             menuStrip.Items.Add(oyunMenusu);
             menuStrip.Items.Add(agMenusu);
@@ -365,7 +373,7 @@ namespace NaneOkey.UI
 
         private void ShowHowToPlay()
         {
-            using (var dialog = new HowToPlayForm())
+            using (var dialog = new HowToPlayForm(_engine.State.Mode))
             {
                 dialog.ShowDialog(this);
             }
@@ -494,15 +502,13 @@ namespace NaneOkey.UI
             odaKart.Controls.Add(onlineYenileButonu);
             odaKart.Controls.Add(_odaDurumEtiketi);
 
-            var tekOyun = CreateHomeButton("Tek Oyunculu Başla", (_, __) => StartLocalGame(CreateDefaultSettings()));
+            var tekOyun = CreateHomeButton("Tek Oyunculu Başla", (_, __) => ShowNewGameDialog());
 
             var yeniOyun = CreateHomeButton("Oyuncuları Ayarla", (_, __) => ShowNewGameDialog());
 
             var agKur = CreateHomeButton("Ağ Odası Kur", (_, __) =>
             {
-                StartLocalGame(CreateDefaultLanSettings());
                 StartLanHost();
-                ShowGameScreen();
             });
 
             var agKat = CreateHomeButton("Ağ Oyununa Katıl", (_, __) =>
@@ -529,14 +535,33 @@ namespace NaneOkey.UI
             _anasayfaPaneli.Controls.Add(baslik);
             Controls.Add(_anasayfaPaneli);
 
+            var homeControlBounds = kart.Controls.Cast<Control>().Concat(odaKart.Controls.Cast<Control>())
+                .ToDictionary(control => control, control => control.Bounds);
             Action placeHomeCards = () =>
             {
-                var totalWidth = kart.Width + 28 + odaKart.Width;
+                if (MainMenuStrip != null) MainMenuStrip.BringToFront();
+                var compact = _anasayfaPaneli.ClientSize.Height < 650;
+                _anasayfaPaneli.Padding = new Padding(16, 32, 16, 12);
+                baslik.Height = compact ? 48 : 72;
+                altBaslik.Height = compact ? 28 : 40;
+                var cardTop = 32 + baslik.Height + altBaslik.Height + 18;
+                var availableWidth = Math.Max(1, _anasayfaPaneli.ClientSize.Width - 32);
+                var availableHeight = Math.Max(1, _anasayfaPaneli.ClientSize.Height - cardTop - 12);
+                var scale = Math.Min(1D, Math.Min(availableWidth / 798D, availableHeight / 460D));
+                kart.Size = new Size((int)Math.Round(430 * scale), (int)Math.Round(460 * scale));
+                odaKart.Size = new Size((int)Math.Round(340 * scale), kart.Height);
+                foreach (var entry in homeControlBounds)
+                {
+                    var bounds = entry.Value;
+                    entry.Key.SetBounds((int)Math.Round(bounds.Left * scale), (int)Math.Round(bounds.Top * scale),
+                        (int)Math.Round(bounds.Width * scale), (int)Math.Round(bounds.Height * scale));
+                }
+                var totalWidth = kart.Width + (int)Math.Round(28 * scale) + odaKart.Width;
                 var startLeft = (_anasayfaPaneli.ClientSize.Width - totalWidth) / 2;
                 kart.Left = startLeft;
-                kart.Top = 170;
-                odaKart.Left = kart.Right + 28;
-                odaKart.Top = 170;
+                kart.Top = cardTop;
+                odaKart.Left = kart.Right + (int)Math.Round(28 * scale);
+                odaKart.Top = cardTop;
             };
 
             _anasayfaPaneli.Resize += (_, __) => placeHomeCards();
@@ -580,9 +605,10 @@ namespace NaneOkey.UI
             AddSideButton("Geri Al", 262, (_, __) => UndoTurn());
             AddSideButton("Oto Diz", 320, (_, __) => AutoArrangeHand());
             AddMenuDivider(376);
-            AddSideButton("Tahta Rengi", 390, (_, __) => ChooseBoardColor());
+            AddSideButton("Tahta Rengi", 390, (_, __) => { if (UsesNewTableAppearance || !_gunlukPaneli.Visible) ShowLogWindow(); else ChooseBoardColor(); });
             AddSideButton("Oda Kur", 448, (_, __) => StartLanHost());
             AddSideButton("Katıl", 506, (_, __) => JoinLanHost());
+            AddSideButton("Soldan Taş Al", 556, (_, __) => DrawDiscardTile());
 
             _botDusunmeEtiketi.SetBounds(12, 582, 114, 18);
             _botDusunmeEtiketi.TextAlign = ContentAlignment.MiddleCenter;
@@ -641,7 +667,12 @@ namespace NaneOkey.UI
 
             _matrisPaneli.BackColor = _matrisArkaRenk;
             _matrisPaneli.BorderStyle = BorderStyle.FixedSingle;
-            _masaPaneli.Controls.Add(_matrisPaneli);
+            _matrisPaneli.Paint += PaintNewNaneBoardBackground;
+            _boardViewport.AutoScroll = true;
+            _boardViewport.BackColor = _matrisArkaRenk;
+            _boardViewport.Paint += PaintNewNaneBoardBackground;
+            _boardViewport.Controls.Add(_matrisPaneli);
+            _masaPaneli.Controls.Add(_boardViewport);
 
             for (var row = 0; row < BoardRows; row++)
             {
@@ -699,7 +730,10 @@ namespace NaneOkey.UI
                 }
             }
 
-            _elDisPaneli.Controls.Add(_elPaneli);
+            _handViewport.AutoScroll = true;
+            _handViewport.BackColor = _elPaneli.BackColor;
+            _handViewport.Controls.Add(_elPaneli);
+            _elDisPaneli.Controls.Add(_handViewport);
             _oyunPaneli.Controls.Add(_elDisPaneli);
         }
 
@@ -830,32 +864,39 @@ namespace NaneOkey.UI
 
         private void LayoutGameScreen()
         {
+            if (MainMenuStrip != null) MainMenuStrip.BringToFront();
             if (_oyunPaneli.ClientSize.Width <= 0 || _oyunPaneli.ClientSize.Height <= 0)
             {
                 return;
             }
 
-            const int outerGap = 10;
-            const int topGap = 40;
-            var sideWidth = Math.Min(145, Math.Max(130, (int)Math.Round(_oyunPaneli.ClientSize.Width * 0.082)));
-            var logWidth = Math.Min(330, Math.Max(285, (int)Math.Round(_oyunPaneli.ClientSize.Width * 0.17)));
-            const int panelGap = 15;
+            var width = _oyunPaneli.ClientSize.Width;
+            var outerGap = width < 1100 ? 6 : 10;
+            var topGap = MainMenuStrip != null && _oyunPaneli.Top < MainMenuStrip.Bottom
+                ? MainMenuStrip.Height + 8 : 8;
+            var compactTraditional = width < 1250;
+            var sideWidth = width < 650 ? 92 : Math.Min(145, Math.Max(110, (int)Math.Round(width * 0.095)));
+            var logWidth = compactTraditional ? 0 : Math.Min(330, Math.Max(170, (int)Math.Round(width * 0.21)));
+            var panelGap = width < 1100 ? 8 : 15;
+            var usableHeight = Math.Max(1, _oyunPaneli.ClientSize.Height - topGap - outerGap);
+            var boardWidth = Math.Max(1, width - sideWidth - logWidth - outerGap * 2 - panelGap * (compactTraditional ? 1 : 2));
+            _tableLayoutMode = _engine.State.Mode;
+            _tableLayoutAppearance = UsesNewTableAppearance;
 
-            var usableHeight = Math.Max(720, _oyunPaneli.ClientSize.Height - topGap - outerGap);
-            var boardWidth = Math.Max(920, _oyunPaneli.ClientSize.Width - sideWidth - logWidth - panelGap * 4);
-            var estimatedBoardHeight = Math.Max(430, usableHeight - 118 - panelGap);
-            _uiScale = CalculateUiScale(boardWidth, estimatedBoardHeight);
-            var handHeight = GetHandOuterHeight();
-            var boardHeight = Math.Max(430, usableHeight - handHeight - panelGap);
-            _uiScale = CalculateUiScale(boardWidth, boardHeight);
-            handHeight = GetHandOuterHeight();
-            boardHeight = Math.Max(430, usableHeight - handHeight - panelGap);
+            // The two shelves and the board share one budget; never grow it past the client area.
+            _uiScale = IsTraditionalGame
+                ? CalculateTraditionalUiScale(boardWidth, usableHeight - panelGap)
+                : CalculateUiScale(boardWidth, usableHeight - panelGap);
+            var handHeight = Math.Min(GetHandOuterHeight(), usableHeight - panelGap);
+            var boardHeight = Math.Max(1, usableHeight - handHeight - panelGap);
 
             _solMenusuPaneli.SetBounds(outerGap, topGap, sideWidth, usableHeight);
             _masaPaneli.SetBounds(_solMenusuPaneli.Right + panelGap, topGap, boardWidth, boardHeight);
             _elDisPaneli.SetBounds(_masaPaneli.Left, _masaPaneli.Bottom + panelGap, boardWidth, handHeight);
             _gunlukPaneli.SetBounds(_masaPaneli.Right + panelGap, topGap, logWidth, usableHeight);
+            _gunlukPaneli.Visible = !compactTraditional;
 
+            LayoutSideMenuSurface();
             LayoutBoardSurface();
             LayoutHandSurface();
             LayoutLogSurface();
@@ -869,20 +910,103 @@ namespace NaneOkey.UI
             _elDisPaneli.Invalidate(true);
         }
 
+        private void LayoutSideMenuSurface()
+        {
+            ConfigureTraditionalSideMenu();
+            var items = _solMenusuPaneli.Controls.Cast<Control>()
+                .Where(control => (control is Button || control is Panel) && !_compactSideMenuItems.Contains(control)).ToList();
+            foreach (var item in items)
+            {
+                if (!_sideMenuOrder.ContainsKey(item))
+                {
+                    _sideMenuOrder[item] = item.Top;
+                }
+            }
+            items = items.OrderBy(control => _sideMenuOrder[control]).ToList();
+            var buttonCount = items.Count(control => control is Button);
+            var dividerCount = items.Count - buttonCount;
+            var footerScale = Math.Min(1D, _solMenusuPaneli.ClientSize.Height / 440D);
+            var padding = Math.Max(2, (int)Math.Round(10 * footerScale));
+            var buttonGap = Math.Max(1, (int)Math.Round(4 * footerScale));
+            var dividerStep = Math.Max(2, (int)Math.Round(10 * footerScale));
+            var footerHeight = (int)Math.Round(110 * footerScale);
+            var buttonHeight = Math.Min(54, Math.Max(1,
+                (_solMenusuPaneli.ClientSize.Height - padding * 2 - footerHeight - dividerCount * dividerStep - Math.Max(0, buttonCount - 1) * buttonGap)
+                / Math.Max(1, buttonCount)));
+            var top = padding;
+            var contentWidth = Math.Max(1, _solMenusuPaneli.ClientSize.Width - 16);
+            foreach (var item in items)
+            {
+                if (item is Button)
+                {
+                    item.SetBounds(8, top, contentWidth, buttonHeight);
+                    FitSideButtonFont(item, contentWidth - 8, buttonHeight - 6);
+                    top += buttonHeight + buttonGap;
+                }
+                else
+                {
+                    item.SetBounds(12, top + Math.Max(1, dividerStep / 3), Math.Max(1, contentWidth - 8), 2);
+                    top += dividerStep;
+                }
+            }
+            top += buttonGap;
+            _botDusunmeEtiketi.SetBounds(8, top, contentWidth, Math.Max(1, (int)Math.Round(16 * footerScale)));
+            _botDusunmeCubugu.SetBounds(8, top + (int)Math.Round(16 * footerScale), contentWidth, Math.Max(1, (int)Math.Round(8 * footerScale)));
+            _hamleSuresiEtiketi.SetBounds(8, top + (int)Math.Round(28 * footerScale), contentWidth, Math.Max(1, (int)Math.Round(18 * footerScale)));
+            _hamleSuresiCubugu.SetBounds(8, top + (int)Math.Round(46 * footerScale), contentWidth, Math.Max(1, (int)Math.Round(12 * footerScale)));
+            var statusTop = top + (int)Math.Round(66 * footerScale);
+            _durumEtiketi.SetBounds(8, statusTop, contentWidth,
+                Math.Max(1, Math.Min((int)Math.Round(46 * footerScale), _solMenusuPaneli.ClientSize.Height - statusTop - padding)));
+        }
+
+        private static void FitSideButtonFont(Control button, int availableWidth, int availableHeight)
+        {
+            var size = 9.5F;
+            while (size > 8F)
+            {
+                using (var candidate = new Font("Tahoma", size, FontStyle.Bold))
+                {
+                    var measured = TextRenderer.MeasureText(button.Text, candidate, new Size(Math.Max(1, availableWidth), int.MaxValue),
+                        TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
+                    if (measured.Width <= availableWidth && measured.Height <= availableHeight) break;
+                }
+                size -= 0.25F;
+            }
+            if (Math.Abs(button.Font.SizeInPoints - size) < 0.01F) return;
+            var oldFont = button.Font;
+            button.Font = new Font("Tahoma", size, FontStyle.Bold);
+            oldFont.Dispose();
+        }
+
         private void LayoutBoardSurface()
         {
+            if (IsTraditionalGame)
+            {
+                LayoutTraditionalTable();
+                return;
+            }
+            SetTraditionalTableVisibility(IsNewNaneAppearance);
             var tileWidth = GetTileWidth();
             var tileHeight = GetTileHeight();
             var boardGapX = GetBoardGapX();
             var boardGapY = GetBoardGapY();
-            var matrixWidth = (BoardCols * tileWidth) + ((BoardCols + 1) * boardGapX);
-            var matrixHeight = (BoardRows * tileHeight) + ((BoardRows + 1) * boardGapY);
-            var matrixLeft = Math.Max(18, (_masaPaneli.ClientSize.Width - matrixWidth) / 2);
-            var maxTop = Math.Max(52, _masaPaneli.ClientSize.Height - matrixHeight - 108);
-            var centeredTop = (_masaPaneli.ClientSize.Height - matrixHeight) / 2 - 28;
-            var matrixTop = Math.Max(58, Math.Min(centeredTop, maxTop));
-
+            var matrixWidth = (BoardCols * tileWidth) + ((BoardCols + 1) * boardGapX) + 2;
+            var matrixHeight = (BoardRows * tileHeight) + ((BoardRows + 1) * boardGapY) + 2;
+            var margin = IsNewNaneAppearance ? 60 : 36;
+            var header = IsNewNaneAppearance ? 64 : 44;
+            var footer = IsNewNaneAppearance ? 76 : 84;
+            var scroll = _boardViewport.AutoScrollPosition;
+            _boardViewport.SuspendLayout();
+            _boardViewport.AutoScrollPosition = Point.Empty;
+            _boardViewport.SetBounds(margin, header, Math.Max(1, _masaPaneli.ClientSize.Width - margin * 2),
+                Math.Max(1, _masaPaneli.ClientSize.Height - header - footer));
+            _boardViewport.BackColor = IsNewNaneAppearance ? Color.FromArgb(24, 91, 61) : _matrisArkaRenk;
+            var matrixLeft = Math.Max(0, (_boardViewport.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - matrixWidth) / 2);
+            var matrixTop = Math.Max(0, (_boardViewport.ClientSize.Height - SystemInformation.HorizontalScrollBarHeight - matrixHeight) / 2);
             _matrisPaneli.SetBounds(matrixLeft, matrixTop, matrixWidth, matrixHeight);
+            _boardViewport.AutoScrollMinSize = new Size(matrixWidth + matrixLeft, matrixHeight + matrixTop);
+            _boardViewport.ResumeLayout(true);
+            _boardViewport.AutoScrollPosition = new Point(-scroll.X, -scroll.Y);
 
             for (var row = 0; row < BoardRows; row++)
             {
@@ -896,9 +1020,11 @@ namespace NaneOkey.UI
                 }
             }
 
-            var matrixMidY = _matrisPaneli.Top + (_matrisPaneli.Height / 2);
-            _desteEtiketi.SetBounds((_masaPaneli.ClientSize.Width - 210) / 2, _matrisPaneli.Bottom + 6, 210, 48);
+            var matrixMidY = _boardViewport.Top + (_boardViewport.Height / 2);
+            var deckWidth = Math.Min(210, Math.Max(120, _masaPaneli.ClientSize.Width - 80));
+            _desteEtiketi.SetBounds((_masaPaneli.ClientSize.Width - deckWidth) / 2, _boardViewport.Bottom + 5, deckWidth, 48);
             ApplySeatLabelLayout(matrixMidY);
+            if (IsNewNaneAppearance) RefreshTraditionalTable();
         }
 
         private void ApplySeatLabelLayout(int matrixMidY)
@@ -916,19 +1042,23 @@ namespace NaneOkey.UI
                 {
                     case Seat.North:
                         label.Angle = 0F;
-                        label.SetBounds((_masaPaneli.ClientSize.Width - 300) / 2, Math.Max(8, _matrisPaneli.Top - 40), 300, 28);
+                        var northWidth = Math.Min(300, Math.Max(1, _masaPaneli.ClientSize.Width - 80));
+                        label.SetBounds((_masaPaneli.ClientSize.Width - northWidth) / 2, Math.Max(8, _boardViewport.Top - 34), northWidth, 26);
                         break;
                     case Seat.West:
                         label.Angle = 270F;
-                        label.SetBounds(10, matrixMidY - 82, 28, 164);
+                        var westHeight = Math.Min(164, Math.Max(1, _masaPaneli.ClientSize.Height - 16));
+                        label.SetBounds(10, Math.Max(8, Math.Min(matrixMidY - westHeight / 2, _masaPaneli.ClientSize.Height - westHeight - 8)), 28, westHeight);
                         break;
                     case Seat.East:
                         label.Angle = 90F;
-                        label.SetBounds(_masaPaneli.ClientSize.Width - 38, matrixMidY - 82, 28, 164);
+                        var eastHeight = Math.Min(164, Math.Max(1, _masaPaneli.ClientSize.Height - 16));
+                        label.SetBounds(_masaPaneli.ClientSize.Width - 38, Math.Max(8, Math.Min(matrixMidY - eastHeight / 2, _masaPaneli.ClientSize.Height - eastHeight - 8)), 28, eastHeight);
                         break;
                     default:
                         label.Angle = 0F;
-                        label.SetBounds((_masaPaneli.ClientSize.Width - 340) / 2, _desteEtiketi.Bottom + 2, 340, 28);
+                        var southWidth = Math.Min(340, Math.Max(1, _masaPaneli.ClientSize.Width - 80));
+                        label.SetBounds((_masaPaneli.ClientSize.Width - southWidth) / 2, _desteEtiketi.Bottom + 3, southWidth, 24);
                         break;
                 }
 
@@ -948,8 +1078,16 @@ namespace NaneOkey.UI
             var tileHeight = GetTileHeight();
             var handGapX = GetHandGapX();
             var handGapY = GetHandGapY();
-            var panelHeight = (tileHeight * HandRows) + (handGapY * (HandRows - 1)) + 12;
-            _elPaneli.SetBounds(8, 8, _elDisPaneli.ClientSize.Width - 16, panelHeight);
+            var panelHeight = (tileHeight * HandRows) + (handGapY * (HandRows - 1)) + 14;
+            var gridWidth = HandCols * tileWidth + (HandCols - 1) * handGapX;
+            var scroll = _handViewport.AutoScrollPosition;
+            _handViewport.SuspendLayout();
+            _handViewport.AutoScrollPosition = Point.Empty;
+            _handViewport.SetBounds(8, 4, Math.Max(1, _elDisPaneli.ClientSize.Width - 16), Math.Max(1, _elDisPaneli.ClientSize.Height - 8));
+            _elPaneli.SetBounds(0, 0, Math.Max(_handViewport.ClientSize.Width, gridWidth + 18), panelHeight);
+            _handViewport.AutoScrollMinSize = _elPaneli.Size;
+            _handViewport.ResumeLayout(true);
+            _handViewport.AutoScrollPosition = new Point(-scroll.X, 0);
             var startX = GetHandGridStartX();
 
             for (var row = 0; row < HandRows; row++)
@@ -967,12 +1105,20 @@ namespace NaneOkey.UI
 
         private void LayoutLogSurface()
         {
-            var inputTop = _gunlukPaneli.ClientSize.Height - 36;
-            _gunlukKutusu.SetBounds(10, 38, _gunlukPaneli.ClientSize.Width - 23, Math.Max(120, inputTop - 48));
-            _sohbetGirdiKutusu.SetBounds(10, inputTop, Math.Max(80, _gunlukPaneli.ClientSize.Width - 197), 26);
-            _ifadeButonu.SetBounds(_sohbetGirdiKutusu.Right + 5, inputTop, 54, 26);
-            _cayButonu.SetBounds(_ifadeButonu.Right + 5, inputTop, 42, 26);
-            _sohbetGonderButonu.SetBounds(_cayButonu.Right + 5, inputTop, 75, 26);
+            var contentWidth = Math.Max(1, _gunlukPaneli.ClientSize.Width - 20);
+            var compact = _gunlukPaneli.ClientSize.Width < 310;
+            var inputTop = Math.Max(38, _gunlukPaneli.ClientSize.Height - (compact ? 66 : 36));
+            _gunlukKutusu.SetBounds(10, 38, contentWidth, Math.Max(1, inputTop - 48));
+            _sohbetGirdiKutusu.SetBounds(10, inputTop, compact ? contentWidth : Math.Max(1, contentWidth - 182), 26);
+            var buttonTop = compact ? inputTop + 30 : inputTop;
+            var firstLeft = compact ? 10 : _sohbetGirdiKutusu.Right + 5;
+            _ifadeButonu.SetBounds(firstLeft, buttonTop, compact ? 45 : 54, 26);
+            _cayButonu.SetBounds(_ifadeButonu.Right + 4, buttonTop, compact ? 36 : 42, 26);
+            _sohbetGonderButonu.SetBounds(_cayButonu.Right + 4, buttonTop, compact ? Math.Max(1, contentWidth - 89) : 75, 26);
+            foreach (var label in _gunlukPaneli.Controls.OfType<Label>())
+            {
+                label.Width = contentWidth;
+            }
         }
 
         private void ShowHomeScreen()
@@ -987,6 +1133,22 @@ namespace NaneOkey.UI
             _anasayfaPaneli.Visible = false;
             _oyunPaneli.Visible = true;
             LayoutGameScreen();
+        }
+
+        private AboutForm CreateAboutDialog()
+        {
+            var dialog = new AboutForm();
+            dialog.BotDebugUnlocked += delegate
+            {
+                _botDebugEnabled = true;
+                _botDebugMenuItem.Visible = true;
+            };
+            return dialog;
+        }
+
+        private void ShowAboutDialog()
+        {
+            using (var dialog = CreateAboutDialog()) dialog.ShowDialog(this);
         }
 
         private void FocusLogPanel()
@@ -1011,8 +1173,8 @@ namespace NaneOkey.UI
                 _logPenceresi = new Form
                 {
                     Text = "Oyun Günlüğü",
-                    Width = 520,
-                    Height = 720,
+                    Width = Math.Min(520, Screen.FromControl(this).WorkingArea.Width - 24),
+                    Height = Math.Min(720, Screen.FromControl(this).WorkingArea.Height - 24),
                     StartPosition = FormStartPosition.CenterParent,
                     MinimizeBox = true,
                     MaximizeBox = false
@@ -1031,6 +1193,7 @@ namespace NaneOkey.UI
                 return;
             }
 
+            EnsureDetachedChatInput();
             _logPenceresi.Show(this);
             _logPenceresi.BringToFront();
             _logPenceresi.Activate();
@@ -1067,6 +1230,7 @@ namespace NaneOkey.UI
 
         private void ShowBotDebugWindow()
         {
+            if (!_botDebugEnabled) return;
             if (IsLanModeActive())
             {
                 MessageBox.Show(this, "Bot debug ekranı ağ/oda modu açıkken kullanılamaz.", "Bot Debug", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -1116,7 +1280,7 @@ namespace NaneOkey.UI
 
         private void AppendBotDebug(string text)
         {
-            if (string.IsNullOrWhiteSpace(text) || IsLanModeActive())
+            if (!_botDebugEnabled || string.IsNullOrWhiteSpace(text) || IsLanModeActive())
             {
                 return;
             }
@@ -1148,17 +1312,17 @@ namespace NaneOkey.UI
 
         private void ShowNewGameDialog()
         {
+            if (_agIstemcisiModu)
+            {
+                Log("Yeni oyunu oda yöneticisi başlatabilir.");
+                return;
+            }
             var initialSettings = _oyunBasladi && _engine.State != null
                 ? BuildSettingsFromCurrentPlayers()
                 : (_currentSettings != null ? CloneSettings(_currentSettings) : CreateDefaultSettings());
 
-            using (var dialog = new NewGameForm(initialSettings))
-            {
-                if (dialog.ShowDialog(this) == DialogResult.OK)
-                {
-                    StartLocalGame(dialog.CreateSettings(), true);
-                }
-            }
+            var settings = SelectNewGameSettings(initialSettings);
+            if (settings != null) StartLocalGame(settings, true);
         }
 
         private void StartLocalGame(GameSettings settings)
@@ -1177,11 +1341,13 @@ namespace NaneOkey.UI
             _engine.MaxBotThinkMilliseconds = System.Math.Max(1000, _currentSettings.BotThinkSeconds * 1000);
             if (resetScores)
             {
+                _matchId = Guid.NewGuid().ToString("N");
                 _roundHistory.Clear();
                 _totalScores.Clear();
             }
 
             _engine.StartNewGame(settings);
+            _selectedHandIds.Clear();
             _oyunBasladi = true;
             _agIstemcisiModu = false;
             _yerelKoltuk = Seat.South;
@@ -1194,9 +1360,16 @@ namespace NaneOkey.UI
                 _host.EnableTurnTimer = _currentSettings.EnableTurnTimer;
                 _host.TurnSeconds = _currentSettings.TurnSeconds;
                 _host.BotThinkSeconds = _currentSettings.BotThinkSeconds;
+                _host.Mode = _currentSettings.Mode;
+                _host.UseNewAppearance = _engine.State.UseNewAppearance;
+                _host.TargetScore = _currentSettings.TargetScore;
+                _host.MatchId = _matchId;
             }
+            if (_onlineClient != null && _onlineClient.InRoom && _onlineClient.IsMasterClient)
+                _onlineClient.UpdateRoomSettings(settings.Mode, settings.TargetScore, _engine.State.UseNewAppearance);
             LoadBoardFromMelds(_engine.State.Table);
             ClearHandSlots();
+            LayoutGameScreen();
             var localPlayer = GetLocalPlayerOrFallback(_engine.State);
             if (localPlayer != null)
             {
@@ -1213,6 +1386,7 @@ namespace NaneOkey.UI
 
         private void CancelActiveDragState()
         {
+            _dragScrollTimer.Stop();
             Capture = false;
             if (_suruklemeOnizleme != null)
             {
@@ -1269,6 +1443,8 @@ namespace NaneOkey.UI
         {
             var clone = new GameSettings
             {
+                Mode = settings.Mode,
+                UseNewAppearance = settings.Mode == GameMode.NaneOkey && settings.UseNewAppearance,
                 StartingHandSize = settings.StartingHandSize,
                 LanPort = settings.LanPort,
                 ActivePlayerCount = settings.ActivePlayerCount,
@@ -1325,6 +1501,11 @@ namespace NaneOkey.UI
 
         private void PlayOrCommitTurn()
         {
+            if (IsTraditionalGame)
+            {
+                ShowTraditionalDiscardDialog();
+                return;
+            }
             if (!_engine.State.TurnInProgress)
             {
                 if (_engine.State.Deck.Count == 0)
@@ -1352,8 +1533,12 @@ namespace NaneOkey.UI
                 return;
             }
 
+            if (IsTraditionalGame && _engine.State.HasDrawnThisTurn &&
+                !(_engine.State.Mode == GameMode.Okey101 && _engine.State.DrawnDiscardTileId > 0)) return;
+
             var previewTile = new Tile(-1, TileColor.Black, 0);
-            BeginCustomDrag(new TileDragData(previewTile, TileSourceKind.Deck, -1, -1), 2, e.Location);
+            BeginCustomDrag(new TileDragData(previewTile, TileSourceKind.Deck, -1, -1), 2,
+                new Point(GetTileWidth() / 2, GetTileHeight() / 2));
         }
 
         private void ChooseBoardColor()
@@ -1467,6 +1652,11 @@ namespace NaneOkey.UI
 
         private void CommitTurn()
         {
+            if (IsTraditionalGame)
+            {
+                ShowTraditionalDiscardDialog();
+                return;
+            }
             if (_agIstemcisiModu)
             {
                 if (!_engine.State.TurnInProgress)
@@ -1576,6 +1766,9 @@ namespace NaneOkey.UI
 
         private List<Meld> BuildMeldsFromBoard()
         {
+            if (IsTraditionalGame)
+                return (_engine.State.TurnInProgress ? _engine.State.TurnTable : _engine.State.Table)
+                    .Select(x => x.Clone()).ToList();
             var result = new List<Meld>();
             for (var row = 0; row < BoardRows; row++)
             {
@@ -1588,7 +1781,7 @@ namespace NaneOkey.UI
                     {
                         if (current.Count > 0)
                         {
-                            var meld = _tahtaDogrulayici.NormalizeMeld(new Meld(current)
+                            var meld = _engine.NormalizeMeld(new Meld(current)
                             {
                                 BoardRow = row,
                                 StartColumn = startCol
@@ -1610,7 +1803,7 @@ namespace NaneOkey.UI
 
                 if (current.Count > 0)
                 {
-                    var meld = _tahtaDogrulayici.NormalizeMeld(new Meld(current)
+                    var meld = _engine.NormalizeMeld(new Meld(current)
                     {
                         BoardRow = row,
                         StartColumn = startCol
@@ -1668,6 +1861,8 @@ namespace NaneOkey.UI
                 RefreshUi();
                 TryAnimateDraw(actingSeat, beforeHandIds);
             }
+            else Log(message);
+            if (IsTraditionalGame) CheckForWinner();
         }
 
         private void AutoDrawForSeat(Seat seat, string reason)
@@ -1695,6 +1890,14 @@ namespace NaneOkey.UI
                 RefreshUi();
                 TryAnimateDraw(seat, beforeHandIds);
             }
+            else
+            {
+                Log(message);
+                _host?.SendTextToSeat(seat, message);
+                if (_onlineClient != null && _onlineClient.InRoom && _onlineClient.IsMasterClient)
+                    _onlineClient.SendEnvelope("text", message, false);
+            }
+            if (IsTraditionalGame) CheckForWinner();
         }
 
         private void CheckForWinner()
@@ -1718,6 +1921,11 @@ namespace NaneOkey.UI
 
         private void ShowRoundScoreDialog()
         {
+            if (IsTraditionalGame)
+            {
+                ShowTraditionalRoundScoreDialog();
+                return;
+            }
             var players = _engine.State.Players.Where(x => x.IsActive).ToList();
             var winner = players.FirstOrDefault(x => string.Equals(x.Name, _engine.State.WinnerName, StringComparison.OrdinalIgnoreCase))
                 ?? players.FirstOrDefault(x => x.Hand.Count == 0)
@@ -1864,6 +2072,7 @@ namespace NaneOkey.UI
             }
 
             _durumEtiketi.Text = state.TurnInProgress ? "Tur Açık" : "Bekleme";
+            RefreshTraditionalUi();
             UpdateTurnTimer();
         }
 
@@ -1945,7 +2154,8 @@ namespace NaneOkey.UI
                 return;
             }
 
-            AutoDrawForSeat(seat, "Tur süresi doldu, taş çekildi.");
+            if (IsTraditionalGame) CompleteTraditionalTimeout(seat);
+            else AutoDrawForSeat(seat, "Tur süresi doldu, taş çekildi.");
         }
 
         private void UpdateTurnTimerProgress()
@@ -1980,11 +2190,13 @@ namespace NaneOkey.UI
             {
                 var onlineSnapshot = new LanGameSnapshot
                 {
+                    MatchId = _matchId,
                     State = LanGameStateDto.FromDomain(snapshot),
                     EnableLivePreview = _currentSettings != null && _currentSettings.EnableLivePreview,
                     EnableTurnTimer = _currentSettings != null && _currentSettings.EnableTurnTimer,
                     TurnSeconds = _currentSettings != null ? _currentSettings.TurnSeconds : 30,
-                    BotThinkSeconds = _currentSettings != null ? _currentSettings.BotThinkSeconds : 30
+                    BotThinkSeconds = _currentSettings != null ? _currentSettings.BotThinkSeconds : 30,
+                    TargetScore = _currentSettings != null ? _currentSettings.TargetScore : 1000
                 };
                 _onlineClient.SendEnvelope("game", LanJson.Serialize(onlineSnapshot), false);
             }
@@ -2151,7 +2363,9 @@ namespace NaneOkey.UI
             try
             {
                 RenderHand();
-                RenderBoard();
+                UpdateTraditionalSelectionViews();
+                if (!IsTraditionalGame) RenderBoard();
+                if (UsesNewTableAppearance) RefreshTraditionalTable();
             }
             finally
             {
@@ -2174,9 +2388,12 @@ namespace NaneOkey.UI
                 return;
             }
 
-            var arrangedGroups = BuildAutoArrangedHandGroups(handTiles);
+            var arrangedGroups = IsTraditionalGame ? BuildTraditionalHandGroups(handTiles) : BuildAutoArrangedHandGroups(handTiles);
             ClearHandSlots();
-            PlaceAutoArrangedHandGroups(arrangedGroups);
+            if (IsTraditionalGame) PlaceTraditionalHandGroups(arrangedGroups);
+            else PlaceAutoArrangedHandGroups(arrangedGroups);
+
+            _handViewport.AutoScrollPosition = Point.Empty;
 
             RefreshUi();
         }
@@ -2320,6 +2537,43 @@ namespace NaneOkey.UI
             }
         }
 
+        private int GetVisibleHandColumnCount()
+        {
+            return Math.Max(1, Math.Min(HandCols, (_handViewport.ClientSize.Width - 18) / Math.Max(1, GetTileWidth() + GetHandGapX())));
+        }
+
+        private void PlaceTraditionalHandGroups(IList<List<Tile>> groups)
+        {
+            var preferredColumns = Math.Min(14, GetVisibleHandColumnCount());
+            if (TryPlaceTraditionalHandGroups(groups, preferredColumns, 1) ||
+                TryPlaceTraditionalHandGroups(groups, preferredColumns, 0) ||
+                TryPlaceTraditionalHandGroups(groups, HandCols, 1) ||
+                TryPlaceTraditionalHandGroups(groups, HandCols, 0)) return;
+            ClearHandSlots();
+            foreach (var tile in groups.Where(x => x != null).SelectMany(x => x))
+                PlaceInLeftmostTopEmptyHandSlot(tile.Clone());
+        }
+
+        private bool TryPlaceTraditionalHandGroups(IList<List<Tile>> groups, int columns, int gap)
+        {
+            ClearHandSlots();
+            var row = 0;
+            var column = 0;
+            foreach (var group in groups.Where(x => x != null && x.Count > 0))
+            {
+                if (group.Count > columns) return false;
+                if (column + group.Count > columns) { row++; column = 0; }
+                if (row >= HandRows) return false;
+                foreach (var tile in group)
+                {
+                    _elSlotlari[row, column] = tile.Clone();
+                    _elGorunumleri[row, column++] = 0;
+                }
+                column += gap;
+            }
+            return true;
+        }
+
         private void PlaceAutoArrangedOverflow(IList<Tile> group, ref int row, ref int nextLeftCol)
         {
             foreach (var tile in group)
@@ -2449,13 +2703,16 @@ namespace NaneOkey.UI
 
             var rotation = visualMode == 1 ? 2 : 0;
             var faceDown = visualMode == 2;
+            var sameFace = tileView.Tile != null && tileView.Tile.Id == tile.Id &&
+                tileView.Tile.Number == tile.Number && tileView.Tile.Color == tile.Color &&
+                tileView.Tile.IsJoker == tile.IsJoker && tileView.Tile.IsFalseJoker == tile.IsFalseJoker &&
+                tileView.Tile.JokerNumber == tile.JokerNumber && tileView.Tile.JokerColor == tile.JokerColor;
             var changed = !tileView.Visible ||
-                          tileView.Tile == null ||
-                          tileView.Tile.Id != tile.Id ||
+                          !sameFace ||
                           tileView.RotationQuarterTurns != rotation ||
                           tileView.FaceDown != faceDown;
 
-            if (tileView.Tile == null || tileView.Tile.Id != tile.Id)
+            if (!sameFace)
             {
                 tileView.SetTile(tile);
             }
@@ -2499,6 +2756,12 @@ namespace NaneOkey.UI
 
             tileView.MouseDown += (_, args) =>
             {
+                if (IsTraditionalGame && sourceKind == TileSourceKind.Hand && args.Button == MouseButtons.Left &&
+                    (ModifierKeys & Keys.Control) == Keys.Control)
+                {
+                    ToggleTraditionalSelection(tileView.Tile.Id);
+                    return;
+                }
                 if (args.Button != MouseButtons.Left && args.Button != MouseButtons.Right)
                 {
                     return;
@@ -2538,6 +2801,14 @@ namespace NaneOkey.UI
                     RefreshUi();
                 }
             };
+            tileView.DoubleClick += (_, __) =>
+            {
+                if (IsTraditionalGame && sourceKind == TileSourceKind.Hand)
+                {
+                    EndCustomDrag(true);
+                    ToggleTraditionalSelection(tileView.Tile.Id);
+                }
+            };
 
             return tileView;
         }
@@ -2562,6 +2833,7 @@ namespace NaneOkey.UI
             _suruklemeOnizleme.BringToFront();
             UpdateDragPreviewPosition();
             Capture = true;
+            _dragScrollTimer.Start();
             RenderTiles();
         }
 
@@ -2621,11 +2893,21 @@ namespace NaneOkey.UI
             _suruklemeOnizleme.BringToFront();
             UpdateDragPreviewPosition();
             Capture = true;
+            _dragScrollTimer.Start();
             RenderTiles();
         }
 
         private bool CanStartDrag(TileSourceKind sourceKind)
         {
+            if (IsTraditionalGame && sourceKind == TileSourceKind.Hand)
+            {
+                if (!_oyunBasladi || _engine.State.IsGameOver || (_agIstemcisiModu && !_agKoltuguAtandi)) return false;
+                if (_engine.State.CurrentTurn == _yerelKoltuk && _engine.State.HasDrawnThisTurn)
+                    return EnsureEditableTurn(false);
+                return true;
+            }
+            if (IsTraditionalGame && sourceKind == TileSourceKind.Board)
+                return _engine.State.Mode == GameMode.Okey101 && EnsureEditableTurn(false);
             if (sourceKind == TileSourceKind.Hand)
             {
                 if (CanReorderLocalHandWhileWaiting())
@@ -2679,7 +2961,23 @@ namespace NaneOkey.UI
 
         private void FinishCustomDrag()
         {
-            var handTarget = FindHandSlotAtScreen(Cursor.Position);
+            CompleteCustomDrag(Cursor.Position);
+        }
+
+        private void CompleteCustomDrag(Point screenLocation)
+        {
+            if (_aktifSurukleme == null) return;
+            if (IsTraditionalGame && TryTraditionalDrop(_aktifSurukleme, screenLocation)) return;
+            if (_aktifSurukleme.SourceKind == TileSourceKind.Deck &&
+                (UsesNewTableAppearance
+                    ? _traditionalTable.GetTargetBounds(new TraditionalTableTarget(TraditionalTargetKind.Stock)).Contains(_traditionalTable.PointToClient(screenLocation))
+                    : _desteEtiketi.RectangleToScreen(_desteEtiketi.ClientRectangle).Contains(screenLocation)))
+            {
+                EndCustomDrag(false);
+                DrawTile();
+                return;
+            }
+            var handTarget = FindHandSlotAtScreen(screenLocation);
             if (handTarget.HasValue)
             {
                 var moved = MoveDraggedTileToHand(handTarget.Value.X, handTarget.Value.Y);
@@ -2697,7 +2995,7 @@ namespace NaneOkey.UI
                 return;
             }
 
-            var boardTarget = FindBoardSlotAtScreen(Cursor.Position);
+            var boardTarget = FindBoardSlotAtScreen(screenLocation);
             if (boardTarget.HasValue)
             {
                 var moved = MoveDraggedTileToBoard(boardTarget.Value.X, boardTarget.Value.Y);
@@ -2722,6 +3020,16 @@ namespace NaneOkey.UI
         private bool MoveDraggedTileToBoard(int row, int col)
         {
             var data = _aktifSurukleme;
+            if (data.SourceKind == TileSourceKind.Deck)
+            {
+                Log("Desteden çekilen taşı önce ıstakana bırakmalısın.");
+                return false;
+            }
+            if (_engine.State.Mode == GameMode.ClassicOkey)
+            {
+                Log("Klasik Okey'de perler elde tamamlanır. Bitirmek için Hamleyi Oyna düğmesini kullan.");
+                return false;
+            }
             if (!EnsureEditableTurn(true))
             {
                 return false;
@@ -2900,6 +3208,7 @@ namespace NaneOkey.UI
             if (newTile != null)
             {
                 MoveHandTileToPreferredSlot(newTile.Id, row, col);
+                _handViewport.ScrollControlIntoView(_elSlotPanelleri[row, col]);
             }
 
             Log(message);
@@ -2907,6 +3216,7 @@ namespace NaneOkey.UI
             BroadcastGameStateToNetworks();
             RefreshUi();
             TryAnimateDraw(actingSeat, beforeHandIds);
+            if (IsTraditionalGame) CheckForWinner();
             return true;
         }
 
@@ -2939,6 +3249,7 @@ namespace NaneOkey.UI
 
         private Point? FindHandSlotAtScreen(Point screenPoint)
         {
+            if (!_handViewport.Visible || !_handViewport.RectangleToScreen(_handViewport.ClientRectangle).Contains(screenPoint)) return null;
             for (var row = 0; row < HandRows; row++)
             {
                 for (var col = 0; col < HandCols; col++)
@@ -2956,6 +3267,16 @@ namespace NaneOkey.UI
 
         private Point? FindBoardSlotAtScreen(Point screenPoint)
         {
+            if (IsTraditionalGame) return null;
+            if (!_boardViewport.Visible || !_boardViewport.RectangleToScreen(_boardViewport.ClientRectangle).Contains(screenPoint)) return null;
+            if (IsNewNaneAppearance)
+            {
+                var point = _matrisPaneli.PointToClient(screenPoint);
+                if (!_matrisPaneli.ClientRectangle.Contains(point)) return null;
+                var row = Math.Max(0, Math.Min(BoardRows - 1, (point.Y - GetBoardGapY()) / (GetTileHeight() + GetBoardGapY())));
+                var col = Math.Max(0, Math.Min(BoardCols - 1, (point.X - GetBoardGapX()) / (GetTileWidth() + GetBoardGapX())));
+                return new Point(row, col);
+            }
             for (var row = 0; row < BoardRows; row++)
             {
                 for (var col = 0; col < BoardCols; col++)
@@ -2969,6 +3290,30 @@ namespace NaneOkey.UI
             }
 
             return null;
+        }
+
+        private bool ScrollDragViewportAtEdge(Panel viewport, Point screenLocation)
+        {
+            if (_aktifSurukleme == null || !viewport.Visible) return false;
+            var location = viewport.PointToClient(screenLocation);
+            if (!viewport.ClientRectangle.Contains(location)) return false;
+            var position = viewport.AutoScrollPosition;
+            var x = -position.X;
+            var y = -position.Y;
+            var step = Math.Max(10, GetTileWidth() / 2);
+            if (viewport.HorizontalScroll.Visible)
+            {
+                if (location.X < 24) x = Math.Max(0, x - step);
+                else if (location.X >= viewport.ClientSize.Width - 24) x += step;
+            }
+            if (viewport.VerticalScroll.Visible)
+            {
+                if (location.Y < 24) y = Math.Max(0, y - step);
+                else if (location.Y >= viewport.ClientSize.Height - 24) y += step;
+            }
+            if (x == -position.X && y == -position.Y) return false;
+            viewport.AutoScrollPosition = new Point(x, y);
+            return viewport.AutoScrollPosition != position;
         }
 
         private void UpdateDragPreviewPosition()
@@ -2989,6 +3334,7 @@ namespace NaneOkey.UI
 
         private void EndCustomDrag(bool restoreOnly)
         {
+            _dragScrollTimer.Stop();
             Capture = false;
             if (_suruklemeOnizleme != null)
             {
@@ -3260,6 +3606,17 @@ namespace NaneOkey.UI
 
             if (preservedIds.Count == 0)
             {
+                if (IsTraditionalGame)
+                {
+                    var columns = Math.Max(Math.Min(12, GetVisibleHandColumnCount()), (sourceTiles.Count + HandRows - 1) / HandRows);
+                    columns = Math.Min(HandCols, columns);
+                    for (var index = 0; index < Math.Min(sourceTiles.Count, HandRows * columns); index++)
+                    {
+                        _elSlotlari[index / columns, index % columns] = sourceTiles[index].Clone();
+                        _elGorunumleri[index / columns, index % columns] = 0;
+                    }
+                    return;
+                }
                 if (sourceTiles.Count <= HandCols)
                 {
                     for (var index = 0; index < sourceTiles.Count; index++)
@@ -3297,6 +3654,18 @@ namespace NaneOkey.UI
 
         private bool PlaceInTopRightEmptyHandSlot(Tile tile)
         {
+            if (IsTraditionalGame)
+            {
+                var columns = Math.Max(11, Math.Min(12, GetVisibleHandColumnCount()));
+                for (var row = 0; row < HandRows; row++)
+                    for (var col = columns - 1; col >= 0; col--)
+                        if (_elSlotlari[row, col] == null)
+                        {
+                            _elSlotlari[row, col] = tile;
+                            _elGorunumleri[row, col] = 0;
+                            return true;
+                        }
+            }
             for (var row = 0; row < HandRows; row++)
             {
                 for (var col = HandCols - 1; col >= 0; col--)
@@ -3334,6 +3703,11 @@ namespace NaneOkey.UI
         private void LoadBoardFromMelds(IList<Meld> melds)
         {
             ClearBoardSlots();
+            if (IsTraditionalGame)
+            {
+                RefreshTraditionalTable();
+                return;
+            }
 
             var orderedMelds = melds
                 .Where(x => x != null)
@@ -3611,10 +3985,12 @@ namespace NaneOkey.UI
                 return;
             }
 
-            var start = GetControlCenterScreen(_desteEtiketi);
+            var start = UsesNewTableAppearance && _traditionalTable != null
+                ? GetTraditionalTargetCenter(TraditionalTargetKind.Stock)
+                : GetControlCenterScreen(_desteEtiketi);
             var destination = seat == _yerelKoltuk
-                ? FindHandTileCenter(newTile.Id) ?? GetControlCenterScreen(_oyuncuEtiketleri[seat])
-                : GetControlCenterScreen(_oyuncuEtiketleri[seat]);
+                ? FindHandTileCenter(newTile.Id) ?? (UsesNewTableAppearance ? GetTraditionalSeatCenter(seat) : GetControlCenterScreen(_oyuncuEtiketleri[seat]))
+                : (UsesNewTableAppearance ? GetTraditionalSeatCenter(seat) : GetControlCenterScreen(_oyuncuEtiketleri[seat]));
             StartTileAnimation(newTile, start, destination, seat != _yerelKoltuk);
             PlayEmbeddedMoveSound();
         }
@@ -3918,12 +4294,8 @@ namespace NaneOkey.UI
                 return;
             }
 
-            if (!_oyunBasladi)
-            {
-                StartLocalGame(CreateDefaultLanSettings());
-            }
-
-            EnsureLanRemoteSeat();
+            var settings = SelectNewGameSettings(CreateDefaultLanSettings());
+            if (settings == null) return;
 
             var roomName = ShowPrompt("Oda adı", "Ağ Odası Kur", "Nane Masa");
             if (string.IsNullOrWhiteSpace(roomName))
@@ -3931,11 +4303,17 @@ namespace NaneOkey.UI
                 return;
             }
 
+            StartLocalGame(settings);
+            EnsureLanRemoteSeat();
             _host = new LanHost();
             _host.EnableLivePreview = _currentSettings != null && _currentSettings.EnableLivePreview;
             _host.EnableTurnTimer = _currentSettings != null && _currentSettings.EnableTurnTimer;
             _host.TurnSeconds = _currentSettings != null ? _currentSettings.TurnSeconds : 30;
             _host.BotThinkSeconds = _currentSettings != null ? _currentSettings.BotThinkSeconds : 30;
+            _host.Mode = _engine.State.Mode;
+            _host.UseNewAppearance = _engine.State.UseNewAppearance;
+            _host.TargetScore = _currentSettings.TargetScore;
+            _host.MatchId = _matchId;
             _host.LogReceived += Log;
             _host.LobbyChanged += snapshot => BeginInvoke(new Action(() =>
             {
@@ -3945,6 +4323,8 @@ namespace NaneOkey.UI
             _host.RemotePlayerNamed += (seat, playerName) => BeginInvoke(new Action(() => ApplyRemotePlayerName(seat, playerName)));
             _host.RemoteDrawRequested += (seat, row, col) => BeginInvoke(new Action(() => HandleRemoteDrawRequest(seat, row, col)));
             _host.RemotePassRequested += seat => BeginInvoke(new Action(() => HandleRemotePassRequest(seat)));
+            _host.RemoteDiscardDrawRequested += seat => BeginInvoke(new Action(() => HandleRemoteDiscardDrawRequest(seat)));
+            _host.RemoteDiscardRequested += (seat, tileId, finish, melds, handIds) => BeginInvoke(new Action(() => HandleRemoteDiscardRequest(seat, tileId, finish, melds, handIds)));
             _host.RemoteCommitRequested += (seat, melds, handTileIds) => BeginInvoke(new Action(() => HandleRemoteCommitRequest(seat, melds, handTileIds)));
             _host.RemotePreviewRequested += (seat, melds, handTileIds) => BeginInvoke(new Action(() => HandleRemotePreviewRequest(seat, melds, handTileIds)));
             _host.RemotePlayerDisconnected += (seat, playerName) => BeginInvoke(new Action(() => ConvertDisconnectedSeatToBot(seat, playerName + " bağlantısı koptu")));
@@ -3975,7 +4355,10 @@ namespace NaneOkey.UI
                 HostIp = _host.LocalIpAddress,
                 HostIpCandidates = new System.Collections.Generic.List<string>(_host.LocalIpCandidates),
                 RoomName = roomName,
-                Port = _host.Port
+                Port = _host.Port,
+                Mode = _engine.State.Mode,
+                UseNewAppearance = _engine.State.UseNewAppearance,
+                ProtocolVersion = LanProtocol.Version
             });
             Log("Ağ odası açıldı. IP: " + _host.LocalIpAddress + " Oda: " + roomName + " Port: " + _host.Port);
         }
@@ -3983,6 +4366,8 @@ namespace NaneOkey.UI
         private void StartOnlineRoom()
         {
             CloseBotDebugWindow();
+            var settings = SelectNewGameSettings(CreateDefaultLanSettings());
+            if (settings == null) return;
             var roomName = ShowPrompt("Oda adı", "Online Oda Kur", "Nane Masa");
             if (string.IsNullOrWhiteSpace(roomName))
             {
@@ -3996,11 +4381,15 @@ namespace NaneOkey.UI
                 return;
             }
 
-            StartLocalGame(CreateDefaultLanSettings());
+            settings.Players[0].Name = name;
+            StartLocalGame(settings);
             EnsureOnlineClient(name);
             _onlineHostModu = true;
             _onlineActorSeats.Clear();
             _onlinePendingBotSeats.Clear();
+            _onlineClient.Mode = settings.Mode;
+            _onlineClient.UseNewAppearance = settings.Mode == GameMode.NaneOkey && settings.UseNewAppearance;
+            _onlineClient.TargetScore = settings.TargetScore;
             _onlineClient.CreateRoom(roomName);
             Log("Online oda kuruluyor: " + roomName);
         }
@@ -4216,6 +4605,7 @@ namespace NaneOkey.UI
 
             if (envelope.Type == "assign")
             {
+                if (_onlineClient == null || senderActorNumber != _onlineClient.MasterActorNumber) return;
                 var assignment = LanJson.Deserialize<OnlineSeatAssignment>(envelope.Payload);
                 Seat assignedSeat;
                 if (assignment != null &&
@@ -4232,6 +4622,7 @@ namespace NaneOkey.UI
 
             if (envelope.Type == "game")
             {
+                if (_onlineClient == null || senderActorNumber != _onlineClient.MasterActorNumber) return;
                 var snapshot = LanJson.Deserialize<LanGameSnapshot>(envelope.Payload);
                 if (snapshot != null && snapshot.State != null)
                 {
@@ -4246,6 +4637,10 @@ namespace NaneOkey.UI
                     }
 
                     _currentSettings.EnableLivePreview = snapshot.EnableLivePreview;
+                    ApplyNetworkMatchId(snapshot.MatchId);
+                    _currentSettings.Mode = snapshot.State.Mode;
+                    _currentSettings.UseNewAppearance = snapshot.State.UseNewAppearance;
+                    _currentSettings.TargetScore = snapshot.TargetScore > 0 ? snapshot.TargetScore : 1000;
                     _currentSettings.EnableTurnTimer = snapshot.EnableTurnTimer;
                     _currentSettings.TurnSeconds = snapshot.TurnSeconds > 0 ? snapshot.TurnSeconds : 30;
                     _currentSettings.BotThinkSeconds = snapshot.BotThinkSeconds > 0 ? snapshot.BotThinkSeconds : 30;
@@ -4282,6 +4677,16 @@ namespace NaneOkey.UI
             {
                 HandleRemotePassRequest(remoteSeat);
             }
+            else if (envelope.Type == "discard_draw")
+            {
+                HandleRemoteDiscardDrawRequest(remoteSeat);
+            }
+            else if (envelope.Type == "discard")
+            {
+                var request = LanJson.Deserialize<LanDiscardRequest>(envelope.Payload);
+                if (request != null) HandleRemoteDiscardRequest(remoteSeat, request.TileId, request.FinishClassic,
+                    request.Melds != null ? request.Melds.ConvertAll(x => x.ToDomain()) : new List<Meld>(), request.HandTileIds ?? new List<int>());
+            }
             else if (envelope.Type == "commit")
             {
                 var layout = LanJson.Deserialize<LanTurnLayout>(envelope.Payload);
@@ -4314,7 +4719,7 @@ namespace NaneOkey.UI
             }
 
             player.Type = PlayerType.Remote;
-            player.Name = playerName.Trim();
+            RenamePlayerPreservingScores(player, playerName.Trim());
             RefreshUi();
             _host?.BroadcastLobby(_engine.State.Players);
             BroadcastGameStateToNetworks();
@@ -4336,9 +4741,10 @@ namespace NaneOkey.UI
             var oldName = string.IsNullOrWhiteSpace(player.Name) ? SeatName(seat) : player.Name;
             player.Type = PlayerType.Bot;
             player.Difficulty = BotDifficulty.SmartHard;
-            player.Name = oldName.EndsWith(" Bot", StringComparison.OrdinalIgnoreCase)
+            var botName = oldName.EndsWith(" Bot", StringComparison.OrdinalIgnoreCase)
                 ? oldName
                 : oldName + " Bot";
+            RenamePlayerPreservingScores(player, botName);
 
             Log(reason + ". " + SeatName(seat) + " bot olarak devam ediyor.");
             _host?.BroadcastLobby(_engine.State.Players);
@@ -4376,12 +4782,12 @@ namespace NaneOkey.UI
 
         private void EnsureLanRemoteSeat()
         {
-            if (_engine.State.Players.Any(x => x.Type == PlayerType.Remote))
+            if (_engine.State.Players.Any(x => x.IsActive && x.Type == PlayerType.Remote))
             {
                 return;
             }
 
-            var remotePlayer = _engine.State.Players.FirstOrDefault(x => x.Seat != Seat.South);
+            var remotePlayer = _engine.State.Players.FirstOrDefault(x => x.IsActive && x.Seat != Seat.South);
             if (remotePlayer == null)
             {
                 return;
@@ -4445,6 +4851,7 @@ namespace NaneOkey.UI
                 _odaListesiKutusu.Items.Add(room);
             }
             _odaListesiKutusu.DisplayMember = "RoomName";
+            _odaListesiKutusu.DisplayMember = string.Empty;
             _odaListesiKutusu.EndUpdate();
 
             if (selected != null)
@@ -4483,6 +4890,11 @@ namespace NaneOkey.UI
 
             var previousState = _oyunBasladi ? _engine.Snapshot() : null;
             _engine.Restore(state);
+            if (_currentSettings != null)
+            {
+                _currentSettings.Mode = state.Mode;
+                _currentSettings.UseNewAppearance = state.UseNewAppearance;
+            }
             _oyunBasladi = true;
             ClearLivePreview();
             if (!_engine.State.IsGameOver)
@@ -4610,6 +5022,14 @@ namespace NaneOkey.UI
                 RefreshUi();
                 TryAnimateDraw(seat, beforeHandIds);
             }
+            else
+            {
+                Log(message);
+                _host?.SendTextToSeat(seat, message);
+                if (_onlineClient != null && _onlineClient.InRoom && _onlineClient.IsMasterClient)
+                    _onlineClient.SendEnvelope("text", message, false);
+            }
+            if (IsTraditionalGame) CheckForWinner();
         }
 
         private void HandleRemotePassRequest(Seat seat)
@@ -4631,6 +5051,7 @@ namespace NaneOkey.UI
             {
                 Log(message);
             }
+            if (IsTraditionalGame) CheckForWinner();
         }
 
         private void HandleRemoteCommitRequest(Seat seat, IList<Meld> melds, IList<int> handTileIds)
@@ -4877,6 +5298,10 @@ namespace NaneOkey.UI
 
                 if (snapshot != null)
                 {
+                    ApplyNetworkMatchId(snapshot.MatchId);
+                    _currentSettings.Mode = state.Mode;
+                    _currentSettings.UseNewAppearance = state.UseNewAppearance;
+                    _currentSettings.TargetScore = snapshot.TargetScore > 0 ? snapshot.TargetScore : 1000;
                     _currentSettings.EnableLivePreview = snapshot.EnableLivePreview;
                     _currentSettings.EnableTurnTimer = snapshot.EnableTurnTimer;
                     _currentSettings.TurnSeconds = snapshot.TurnSeconds > 0 ? snapshot.TurnSeconds : 30;
@@ -5497,6 +5922,11 @@ namespace NaneOkey.UI
                 return false;
             }
 
+            if (IsTraditionalGame && !_engine.State.HasDrawnThisTurn)
+            {
+                if (showMessage) Log("Önce ortadan veya soldan bir taş çekmelisin.");
+                return false;
+            }
             if (_engine.State.TurnInProgress)
             {
                 return true;
@@ -5683,9 +6113,11 @@ namespace NaneOkey.UI
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
+            _dragScrollTimer.Dispose();
             base.OnFormClosed(e);
             _host?.Dispose();
             _client?.Dispose();
+            _onlineClient?.Dispose();
             _discovery.Dispose();
         }
 
@@ -5778,6 +6210,8 @@ namespace NaneOkey.UI
 
         private void DrawBoardSurface(object sender, PaintEventArgs e)
         {
+            if (IsTraditionalGame) return;
+            if (IsNewNaneAppearance) { DrawNewNaneFelt(e.Graphics, ((Control)sender).ClientRectangle, e.ClipRectangle); return; }
             var rect = ((Control)sender).ClientRectangle;
             using (var brush = new System.Drawing.Drawing2D.LinearGradientBrush(rect, _tahtaAcikRenk, _tahtaKoyuRenk, 90F))
             {
@@ -5785,7 +6219,7 @@ namespace NaneOkey.UI
             }
             using (var pen = new Pen(Color.FromArgb(230, 207, 145), 4))
             {
-                var guideRect = _matrisPaneli.Bounds;
+                var guideRect = _boardViewport.Bounds;
                 var ellipseMarginX = Math.Max(110, guideRect.Width / 4);
                 var ellipseMarginY = Math.Max(36, guideRect.Height / 5);
                 var ellipseLeft = Math.Max(20, guideRect.Left - ellipseMarginX);
@@ -5803,6 +6237,7 @@ namespace NaneOkey.UI
 
         private void DrawBoardSlot(object sender, PaintEventArgs e)
         {
+            if (IsNewNaneAppearance) return;
             var rect = ((Control)sender).ClientRectangle;
             using (var pen = new Pen(_slotCizgiRenk, 1))
             {
@@ -5810,23 +6245,20 @@ namespace NaneOkey.UI
             }
         }
 
-        private float CalculateUiScale(int boardWidth, int boardHeight)
+        private float CalculateUiScale(int boardWidth, int availableHeight)
         {
-            var boardWidthScale = (boardWidth - 40D) / ((BoardCols * TileWidth) + ((BoardCols + 1) * BoardGapX));
-            var boardHeightScale = (boardHeight - 140D) / ((BoardRows * TileHeight) + ((BoardRows + 1) * BoardGapY));
-            var handWidthScale = (boardWidth - 28D) / ((HandCols * TileWidth) + ((HandCols - 1) * HandGapX) + 16D);
-            var scale = Math.Min(boardWidthScale, Math.Min(boardHeightScale, handWidthScale));
-            return (float)Math.Max(0.82D, Math.Min(2.1D, scale));
+            // Keep the pieces readable; the board and all 48 shelf positions remain reachable by scrolling.
+            return CalculateTraditionalUiScale(boardWidth, availableHeight);
         }
 
         private int GetTileWidth()
         {
-            return Math.Max(30, (int)Math.Round(TileWidth * _uiScale));
+            return Math.Max(1, (int)Math.Round(TileWidth * _uiScale));
         }
 
         private int GetTileHeight()
         {
-            return Math.Max(40, (int)Math.Round(TileHeight * _uiScale));
+            return Math.Max(1, (int)Math.Round(TileHeight * _uiScale));
         }
 
         private int GetBoardGapX()
@@ -5851,7 +6283,7 @@ namespace NaneOkey.UI
 
         private int GetHandOuterHeight()
         {
-            return (GetTileHeight() * HandRows) + (GetHandGapY() * (HandRows - 1)) + 20;
+            return (GetTileHeight() * HandRows) + (GetHandGapY() * (HandRows - 1)) + 24 + SystemInformation.HorizontalScrollBarHeight;
         }
 
         private int GetHandGridStartX()
@@ -5900,6 +6332,20 @@ namespace NaneOkey.UI
 
         private void DrawHandSlots(object sender, PaintEventArgs e)
         {
+            // Real okey shelves have wooden rails; the free board-slot guides belong to Nane Okey.
+            if (UsesNewTableAppearance)
+            {
+                var width = ((Control)sender).ClientSize.Width;
+                using (var rail = new SolidBrush(Color.FromArgb(128, 81, 38)))
+                using (var highlight = new Pen(Color.FromArgb(230, 193, 129), 2))
+                    for (var row = 0; row < HandRows; row++)
+                    {
+                        var y = 6 + (row + 1) * GetTileHeight() + row * GetHandGapY();
+                        e.Graphics.FillRectangle(rail, 4, y - 2, Math.Max(1, width - 8), 5);
+                        e.Graphics.DrawLine(highlight, 4, y - 2, width - 4, y - 2);
+                    }
+                return;
+            }
             var tileWidth = GetTileWidth();
             var tileHeight = GetTileHeight();
             var handGapX = GetHandGapX();

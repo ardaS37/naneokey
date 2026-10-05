@@ -19,6 +19,10 @@ namespace NaneOkey.Network
         private bool _createRequested;
         private string _pendingRoomName;
 
+        public GameMode Mode { get; set; }
+        public bool UseNewAppearance { get; set; }
+        public int TargetScore { get; set; } = 20;
+
         public OnlineClient()
         {
             _client.AddCallbackTarget(this);
@@ -55,9 +59,29 @@ namespace NaneOkey.Network
             get { return _client.LocalPlayer != null ? _client.LocalPlayer.ActorNumber : 0; }
         }
 
+        public int MasterActorNumber
+        {
+            get { return _client.CurrentRoom != null ? _client.CurrentRoom.MasterClientId : 0; }
+        }
+
         public string CurrentRoomName
         {
             get { return _client.CurrentRoom != null ? _client.CurrentRoom.Name : string.Empty; }
+        }
+
+        public GameMode CurrentRoomMode
+        {
+            get { return _client.CurrentRoom != null ? new OnlineRoomInfo(_client.CurrentRoom).Mode : Mode; }
+        }
+
+        public int CurrentRoomTargetScore
+        {
+            get { return _client.CurrentRoom != null ? new OnlineRoomInfo(_client.CurrentRoom).TargetScore : TargetScore; }
+        }
+
+        public bool CurrentRoomUseNewAppearance
+        {
+            get { return _client.CurrentRoom != null ? new OnlineRoomInfo(_client.CurrentRoom).UseNewAppearance : Mode == GameMode.NaneOkey && UseNewAppearance; }
         }
 
         public string GetPlayerName(int actorNumber)
@@ -85,7 +109,7 @@ namespace NaneOkey.Network
 
             SetPlayerName(playerName);
             _client.AppId = appId;
-            _client.AppVersion = "3.0.5.0";
+            _client.AppVersion = LanProtocol.AppVersion;
             _serviceTimer.Start();
             if (!_client.ConnectToRegionMaster("eu"))
             {
@@ -96,6 +120,24 @@ namespace NaneOkey.Network
         public void SetPlayerName(string playerName)
         {
             _client.NickName = string.IsNullOrWhiteSpace(playerName) ? "Misafir" : playerName.Trim();
+        }
+
+        public void UpdateRoomSettings(GameMode mode, int targetScore, bool useNewAppearance = false)
+        {
+            Mode = mode;
+            UseNewAppearance = mode == GameMode.NaneOkey && useNewAppearance;
+            TargetScore = targetScore;
+            if (InRoom && IsMasterClient)
+            {
+                _client.CurrentRoom.SetCustomProperties(new Hashtable
+                {
+                    { OnlineRoomInfo.ModeProperty, (int)mode },
+                    { OnlineRoomInfo.AppearanceProperty, UseNewAppearance },
+                    { OnlineRoomInfo.TargetScoreProperty, targetScore },
+                    { OnlineRoomInfo.ProtocolProperty, LanProtocol.Version }
+                });
+                _client.LoadBalancingPeer.SendOutgoingCommands();
+            }
         }
 
         public void CreateRoom(string roomName)
@@ -122,7 +164,7 @@ namespace NaneOkey.Network
 
         public void SendEnvelope(string type, string payload, bool includeSelf)
         {
-            if (!_client.InRoom)
+            if (!_client.InRoom || (type == "preview" && CurrentRoomMode != GameMode.NaneOkey))
             {
                 return;
             }
@@ -149,7 +191,23 @@ namespace NaneOkey.Network
             var parameters = new EnterRoomParams
             {
                 RoomName = _pendingRoomName,
-                RoomOptions = new RoomOptions { MaxPlayers = 4, IsVisible = true, IsOpen = true }
+                RoomOptions = new RoomOptions
+                {
+                    MaxPlayers = 4,
+                    IsVisible = true,
+                    IsOpen = true,
+                    CustomRoomProperties = new Hashtable
+                    {
+                        { OnlineRoomInfo.ModeProperty, (int)Mode },
+                        { OnlineRoomInfo.AppearanceProperty, Mode == GameMode.NaneOkey && UseNewAppearance },
+                        { OnlineRoomInfo.TargetScoreProperty, TargetScore },
+                        { OnlineRoomInfo.ProtocolProperty, LanProtocol.Version }
+                    },
+                    CustomRoomPropertiesForLobby = new[]
+                    {
+                        OnlineRoomInfo.ModeProperty, OnlineRoomInfo.AppearanceProperty, OnlineRoomInfo.TargetScoreProperty, OnlineRoomInfo.ProtocolProperty
+                    }
+                }
             };
 
             if (_createRequested)
@@ -247,6 +305,9 @@ namespace NaneOkey.Network
 
         public void OnJoinedRoom()
         {
+            Mode = CurrentRoomMode;
+            UseNewAppearance = CurrentRoomUseNewAppearance;
+            TargetScore = CurrentRoomTargetScore;
             RaiseLog("Online odaya girildi: " + CurrentRoomName);
             _pendingRoomName = null;
             RoomJoined?.Invoke();
@@ -307,8 +368,29 @@ namespace NaneOkey.Network
                 return;
             }
 
-            var envelope = LanJson.Deserialize<LanEnvelope>(payload);
-            if (envelope != null)
+            LanEnvelope envelope;
+            try
+            {
+                envelope = LanJson.Deserialize<LanEnvelope>(payload);
+            }
+            catch (ArgumentException)
+            {
+                RaiseLog("Online odada geçersiz ileti alındı.");
+                return;
+            }
+            catch (InvalidOperationException)
+            {
+                RaiseLog("Online odada geçersiz ileti alındı.");
+                return;
+            }
+
+            if (envelope != null &&
+                (envelope.Type == "assign" || envelope.Type == "game" || envelope.Type == "preview") &&
+                photonEvent.Sender != MasterActorNumber)
+            {
+                return;
+            }
+            if (envelope != null && (envelope.Type != "preview" || CurrentRoomMode == GameMode.NaneOkey))
             {
                 EnvelopeReceived?.Invoke(photonEvent.Sender, envelope);
             }

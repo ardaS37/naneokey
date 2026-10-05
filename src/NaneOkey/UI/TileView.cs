@@ -25,6 +25,8 @@ namespace NaneOkey.UI
 
         public bool FaceDown { get; set; }
 
+        public bool Selected { get; set; }
+
         public void SetTile(Tile tile)
         {
             Tile = tile;
@@ -85,14 +87,30 @@ namespace NaneOkey.UI
 
             var color = ResolveColor(Tile.Color);
             using (var brush = new SolidBrush(color))
-            using (var font = new Font("Tahoma", 11F, FontStyle.Bold))
+            using (var font = new Font("Tahoma", 13.5F, FontStyle.Bold))
+            using (var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
             {
-                e.Graphics.DrawString(Tile.Number.ToString(), font, brush, 5, 5);
+                e.Graphics.DrawString(Tile.IsFalseJoker ? "★" : Tile.Number.ToString(), font, brush,
+                    new RectangleF(1, 2, BaseWidth - 4, 27), format);
             }
 
             using (var brush = new SolidBrush(color))
             {
                 e.Graphics.FillEllipse(brush, 12, 30, 8, 8);
+            }
+            if (Tile.IsJoker)
+            {
+                using (var brush = new SolidBrush(Color.Firebrick))
+                using (var font = new Font("Tahoma", 6F, FontStyle.Bold))
+                    e.Graphics.DrawString("O", font, brush, 23, 25);
+            }
+
+            if (Selected)
+            {
+                using (var pen = new Pen(Color.FromArgb(180, 55, 24), 2F))
+                    e.Graphics.DrawRectangle(pen, 1, 1, BaseWidth - 4, BaseHeight - 5);
+                using (var brush = new SolidBrush(Color.FromArgb(180, 55, 24)))
+                    e.Graphics.FillRectangle(brush, 2, BaseHeight - 7, BaseWidth - 6, 3);
             }
 
             e.Graphics.ResetTransform();

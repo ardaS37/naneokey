@@ -25,7 +25,13 @@ namespace NaneOkey.Engine
 
         public void StartNewGame(GameSettings settings)
         {
+            if (settings.Mode != GameMode.NaneOkey)
+            {
+                State = TraditionalGameEngine.CreateGame(settings);
+                return;
+            }
             State = new GameState();
+            State.UseNewAppearance = settings.UseNewAppearance;
             var deck = DeckFactory.CreateShuffledDeck();
             foreach (Seat seat in Enum.GetValues(typeof(Seat)))
             {
@@ -53,6 +59,7 @@ namespace NaneOkey.Engine
 
         public void BeginTurn(Seat seat)
         {
+            if (State.Mode != GameMode.NaneOkey) { new TraditionalGameEngine(State).BeginTurn(seat); return; }
             EnsureTurnOwner(seat);
             if (State.TurnInProgress)
             {
@@ -73,6 +80,7 @@ namespace NaneOkey.Engine
 
         public bool CreateMeldFromHand(Seat seat, IList<int> tileIds)
         {
+            if (State.Mode != GameMode.NaneOkey) return new TraditionalGameEngine(State).CreateMeldFromHand(seat, tileIds);
             EnsureTurnOwner(seat);
             EnsureTurnBegun();
             if (tileIds == null || tileIds.Count < 3)
@@ -97,6 +105,7 @@ namespace NaneOkey.Engine
 
         public bool TryAddTileToMeld(Seat seat, int tileId, int meldIndex)
         {
+            if (State.Mode != GameMode.NaneOkey) return new TraditionalGameEngine(State).TryAddTileToMeld(seat, tileId, meldIndex);
             EnsureTurnOwner(seat);
             EnsureTurnBegun();
             if (meldIndex < 0 || meldIndex >= State.TurnTable.Count)
@@ -123,6 +132,7 @@ namespace NaneOkey.Engine
 
         public bool RemoveTileFromMeld(Seat seat, int meldIndex, int tileId)
         {
+            if (State.Mode != GameMode.NaneOkey) return new TraditionalGameEngine(State).RemoveTileFromMeld(seat, meldIndex, tileId);
             EnsureTurnOwner(seat);
             EnsureTurnBegun();
             if (meldIndex < 0 || meldIndex >= State.TurnTable.Count)
@@ -149,6 +159,7 @@ namespace NaneOkey.Engine
 
         public void UndoTurn(Seat seat)
         {
+            if (State.Mode != GameMode.NaneOkey) { new TraditionalGameEngine(State).UndoTurn(seat); return; }
             EnsureTurnOwner(seat);
             State.TurnTable.Clear();
             State.TurnHand.Clear();
@@ -159,6 +170,7 @@ namespace NaneOkey.Engine
 
         public bool CommitTurn(Seat seat, out string error)
         {
+            if (State.Mode != GameMode.NaneOkey) return new TraditionalGameEngine(State).CommitTurn(seat, out error);
             EnsureTurnOwner(seat);
             EnsureTurnBegun();
 
@@ -224,6 +236,7 @@ namespace NaneOkey.Engine
 
         public bool ReplaceTurnLayout(Seat seat, IList<Meld> melds, IList<int> handTileIds, out string error)
         {
+            if (State.Mode != GameMode.NaneOkey) return new TraditionalGameEngine(State).ReplaceTurnLayout(seat, melds, handTileIds, out error);
             EnsureTurnOwner(seat);
             EnsureTurnBegun();
 
@@ -286,6 +299,7 @@ namespace NaneOkey.Engine
 
         public bool DrawTile(Seat seat, out string message)
         {
+            if (State.Mode != GameMode.NaneOkey) return new TraditionalGameEngine(State).DrawTile(seat, out message);
             EnsureTurnOwner(seat);
             if (State.Deck.Count == 0)
             {
@@ -308,6 +322,7 @@ namespace NaneOkey.Engine
 
         public bool PassTurn(Seat seat, out string message)
         {
+            if (State.Mode != GameMode.NaneOkey) return new TraditionalGameEngine(State).PassTurn(seat, out message);
             EnsureTurnOwner(seat);
             if (State.Deck.Count > 0)
             {
@@ -342,6 +357,12 @@ namespace NaneOkey.Engine
                 return false;
             }
 
+            if (State.Mode != GameMode.NaneOkey)
+            {
+                LastBotDebugInfo = "Geleneksel oyun: çek, perleri değerlendir, taş at.";
+                return new TraditionalBotEngine().TryApplyTurn(this, player.Seat, out message);
+            }
+
             if (_botEngine.TryApplyTurn(this, player.Seat, player.Difficulty))
             {
                 message = State.LastAction;
@@ -367,6 +388,54 @@ namespace NaneOkey.Engine
         public void Restore(GameState state)
         {
             State = state == null ? new GameState() : state.Clone();
+        }
+
+        public bool IsValidMeld(Meld meld)
+        {
+            return State.Mode == GameMode.NaneOkey ? _validator.IsValidMeld(meld) : new TraditionalRuleValidator(State.Mode).IsValidMeld(meld);
+        }
+
+        public Meld NormalizeMeld(Meld meld)
+        {
+            return State.Mode == GameMode.NaneOkey ? _validator.NormalizeMeld(meld) : new TraditionalRuleValidator(State.Mode).NormalizeMeld(meld);
+        }
+
+        public bool DrawDiscard(Seat seat, out string message)
+        {
+            if (State.Mode != GameMode.NaneOkey) return new TraditionalGameEngine(State).DrawDiscard(seat, out message);
+            message = "Nane Okey'de atık yığını yoktur."; return false;
+        }
+
+        public bool DiscardTile(Seat seat, int tileId, out string message)
+        {
+            if (State.Mode != GameMode.NaneOkey) return new TraditionalGameEngine(State).DiscardTile(seat, tileId, false, out message);
+            message = "Nane Okey'de taş atılmaz."; return false;
+        }
+
+        public bool ReplaceTableJoker(Seat seat, int handTileId, int meldIndex, int jokerTileId, out string message)
+        {
+            if (State.Mode == GameMode.Okey101)
+                return new TraditionalGameEngine(State).ReplaceTableJoker(seat, handTileId, meldIndex, jokerTileId, out message);
+            message = "Masadan okey alma yalnız 101 Okey'de kullanılabilir.";
+            return false;
+        }
+
+        public bool FinishClassic(Seat seat, int discardTileId, out string message)
+        {
+            if (State.Mode == GameMode.ClassicOkey) return new TraditionalGameEngine(State).DiscardTile(seat, discardTileId, true, out message);
+            message = "Bu işlem yalnız Klasik Okey'de kullanılabilir."; return false;
+        }
+
+        public bool CompleteTimeout(Seat seat, out string message)
+        {
+            if (State.Mode == GameMode.NaneOkey) return State.Deck.Count == 0 ? PassTurn(seat, out message) : DrawTile(seat, out message);
+            var traditional = new TraditionalGameEngine(State);
+            traditional.UndoTurn(seat);
+            if (State.DrawnDiscardTileId > 0 && State.Mode == GameMode.Okey101) traditional.ReturnDiscard(seat, out message);
+            if (!State.HasDrawnThisTurn && !traditional.DrawTile(seat, out message)) return false;
+            if (State.IsGameOver) { message = State.LastAction; return true; }
+            var player = State.Players.First(x => x.Seat == seat);
+            return traditional.DiscardTile(seat, player.Hand.Last().Id, false, out message);
         }
 
         private bool IsPureOpeningMeld(Meld meld)

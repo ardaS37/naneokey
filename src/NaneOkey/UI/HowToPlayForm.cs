@@ -1,11 +1,17 @@
 using System.Drawing;
 using System.Windows.Forms;
+using NaneOkey.Domain;
 
 namespace NaneOkey.UI
 {
     public sealed class HowToPlayForm : Form
     {
         public HowToPlayForm()
+            : this(GameMode.NaneOkey)
+        {
+        }
+
+        public HowToPlayForm(GameMode mode)
         {
             Text = "Nasıl Oynanır";
             StartPosition = FormStartPosition.CenterParent;
@@ -86,6 +92,16 @@ namespace NaneOkey.UI
                 Height = 30,
                 DialogResult = DialogResult.OK
             };
+
+            if (mode != GameMode.NaneOkey)
+            {
+                titleLabel.Text = GameModeForm.ModeName(mode) + " Kuralları";
+                textBox.Text = "Dört kişi oynanır. Gösterge rastgele seçilir. Göstergenin aynı renkte bir sonraki sayısı okeydir (13'ten sonra 1). Okey her taşın yerine geçer; yıldızlı sahte okey yalnız okey taşının gerçek sayı ve rengini temsil eder.\r\n\r\n" +
+                    (mode == GameMode.ClassicOkey
+                    ? "Oyuncular 14 taşla, ilk oyuncu 15 taşla başlar. İlk oyuncu taş çekmeden atar. Sonraki turlarda ortadan veya önceki oyuncunun son atığından bir taş alınır, ardından bir taş atılır.\r\n\r\nElindeki 14 taşın tamamı en az üç taşlı seriler/gruplar ya da yedi aynı renk ve sayı çifti olunca son taşını Bitir alanına bırakarak kazanırsın. Perler elde kalır; klasik masada açma alanı yoktur. Aynı renk ardışık seri, aynı sayı farklı renk grup geçerlidir. 12-13-1 geçerli, 13-1-2 geçersizdir.\r\n\r\nKazanan 0, diğerleri 2 ceza puanı alır. Okey atarak veya yedi çiftle bitiş cezayı ikiye katlar. Deste tükenirse tur puansız biter."
+                    : "Oyuncular 21 taşla, ilk oyuncu 22 taşla başlar. İlk oyuncu çekmeden atar; sonraki turlarda çekip atılır. Yandan aldığın taşı aynı tur masada kullanmalısın. Kullanamıyorsan desteye tıklamak alınan taşı geri bırakıp ortadan çeker.\r\n\r\nİlk açılış tek turda en az 101 puanlık seri/grup ya da en az 5 çift olmalıdır. Seri aynı renkte ardışık en az 3 taş, grup aynı sayı farklı renk en az 3 taştır. Seride 1 yalnız başta kullanılır; 12-13-1 geçersizdir. Çift aynı renk ve sayıda iki taştır. Katlama yoktur.\r\n\r\nCtrl+tık ile taşlarını seçip Per Aç veya Çift Aç alanına tıkla. Yan yana taşları sağ tuşla bu alanlara sürükleyebilirsin. Perler ve çiftler masanın ayrı bölümlerine yerleşir; kalabalık masada fare tekerleği ile kaydır.\r\n\r\nAçıldıktan sonra tek taşı açık perin üzerine sürükleyerek işle. Açılmış perler parçalanamaz veya ele geri alınamaz. Masadaki okeyin temsil ettiği doğal taşı perine bırakırsan okeyi eline alırsın. Çift açan yeni seri açamaz; aynı turda bir pere en fazla iki taş işleyebilir. Seri açan masada çift açılmışsa çift işleyebilir.\r\n\r\nBir taşı kendi atık alanına bırakınca açılış ve işleme onaylanır. Onaydan önce Geri Al masaya bu tur koyduklarını geri getirir. Bitmek için son bir taş atılmalıdır.\r\n\r\nKazanan -101, açılmamış oyuncu 202 ceza alır. Açık oyuncunun elindeki sayı toplamı cezasıdır; eldeki okey 101 puandır. Çift açanların cezası ikiye katlanır. Okey atarak veya çift açıp bitiş cezaları ikiye katlar. Kimse açmadan elden bitiş de cezayı ikiye katlar. Deste bittiğinde açmayan 202, açan elde kalan taşlarının cezasını alır.") +
+                    "\r\n\r\nHer iki modda en düşük toplam ceza öndedir. Bir oyuncu ayarlardaki ceza sınırına ulaşınca en düşük toplam puanlı oyuncu genel kazanandır.\r\n\r\nKullanım: Deste veya önceki atık alanına tıklayarak taş al; elindeki taşı kendi atık alanına sürükleyerek at. Ctrl+tık veya çift tık ile seçtiğin tek taş için atık/Bitir alanına da tıklayabilirsin. F4 Taş At / Bitir, F5 Ortadan Taş Çek, F6 Geri Al, F7 Oto Diz. Okey taşları O işareti, sahte okey yıldız ile gösterilir.";
+            }
 
             Controls.Add(titleLabel);
             Controls.Add(textBox);

@@ -1,5 +1,12 @@
 namespace NaneOkey.Domain
 {
+    public enum GameMode
+    {
+        NaneOkey = 0,
+        ClassicOkey = 1,
+        Okey101 = 2
+    }
+
     public enum TileColor
     {
         Red,

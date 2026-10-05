@@ -51,7 +51,7 @@ namespace NaneOkey.Network
             var payload = new LanEnvelope
             {
                 Type = "discover",
-                Payload = LanJson.Serialize(new LanDiscoveryQuery { App = DiscoveryAppName })
+                Payload = LanJson.Serialize(new LanDiscoveryQuery { App = DiscoveryAppName, ProtocolVersion = LanProtocol.Version })
             };
             BroadcastPayload(LanJson.Serialize(payload));
         }
@@ -116,6 +116,13 @@ namespace NaneOkey.Network
                 catch (SocketException)
                 {
                     return;
+                }
+                catch (ArgumentException)
+                {
+                    // Discovery shares a UDP port with all machines on the LAN.
+                }
+                catch (InvalidOperationException)
+                {
                 }
             }
         }

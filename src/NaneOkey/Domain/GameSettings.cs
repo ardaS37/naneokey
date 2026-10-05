@@ -19,6 +19,10 @@ namespace NaneOkey.Domain
 
         public List<PlayerSetup> Players { get; private set; }
 
+        public GameMode Mode { get; set; }
+
+        public bool UseNewAppearance { get; set; }
+
         public int StartingHandSize { get; set; }
 
         public int LanPort { get; set; }

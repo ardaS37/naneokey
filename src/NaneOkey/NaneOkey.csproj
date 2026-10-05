@@ -12,6 +12,8 @@
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <Deterministic>true</Deterministic>
+    <LangVersion>7.3</LangVersion>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <PlatformTarget>x86</PlatformTarget>
@@ -46,11 +48,16 @@
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="System.Data" />
     <Reference Include="System.Xml" />
+    <Reference Include="Photon-DotNet">
+      <HintPath>..\..\lib\Photon\Photon-DotNet.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Domain\Enums.cs" />
+    <Compile Include="Domain\DiscardPile.cs" />
     <Compile Include="Domain\Tile.cs" />
     <Compile Include="Domain\Meld.cs" />
     <Compile Include="Domain\PlayerState.cs" />
@@ -60,16 +67,35 @@
     <Compile Include="Engine\DeckFactory.cs" />
     <Compile Include="Engine\BotEngine.cs" />
     <Compile Include="Engine\GameEngine.cs" />
+    <Compile Include="Engine\Traditional*.cs" />
     <Compile Include="Network\LanContracts.cs" />
     <Compile Include="Network\LanJson.cs" />
     <Compile Include="Network\LanDiscoveryService.cs" />
     <Compile Include="Network\LanHost.cs" />
     <Compile Include="Network\LanClient.cs" />
+    <Compile Include="Network\OnlineClient.cs" />
+    <Compile Include="Network\OnlineRoomInfo.cs" />
+    <Compile Include="ThirdParty\PhotonLoadbalancingApi\*.cs" />
     <Compile Include="UI\NewGameForm.cs" />
+    <Compile Include="UI\AboutForm.cs" />
+    <Compile Include="UI\GameModeForm.cs" />
+    <Compile Include="UI\MainForm.Traditional.cs" />
+    <Compile Include="UI\MainForm.TraditionalTable.cs" />
+    <Compile Include="UI\TraditionalTableView.cs" />
     <Compile Include="UI\HowToPlayForm.cs" />
     <Compile Include="UI\MainForm.cs" />
     <Compile Include="UI\RoundScoreForm.cs" />
     <Compile Include="UI\TileView.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\emotes.png"><LogicalName>NaneOkey.Assets.emotes.png</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="Assets\cay.png"><LogicalName>NaneOkey.Assets.cay.png</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="..\..\lib\Photon\Photon-DotNet.dll"><LogicalName>Photon-DotNet.dll</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="..\..\move.wav"><LogicalName>NaneOkey.Assets.move.wav</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="..\..\basla.wav"><LogicalName>NaneOkey.Assets.basla.wav</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="..\..\win.wav"><LogicalName>NaneOkey.Assets.win.wav</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="..\..\lose.wav"><LogicalName>NaneOkey.Assets.lose.wav</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="..\..\fullwin.wav"><LogicalName>NaneOkey.Assets.fullwin.wav</LogicalName></EmbeddedResource>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

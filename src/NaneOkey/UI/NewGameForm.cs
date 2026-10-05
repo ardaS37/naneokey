@@ -1,4 +1,6 @@
 using System.Drawing;
+using System;
+using System.Linq;
 using System.Windows.Forms;
 using NaneOkey.Domain;
 
@@ -13,9 +15,11 @@ namespace NaneOkey.UI
         private readonly ComboBox _playerCountBox = new ComboBox();
         private readonly NumericUpDown _targetScoreBox = new NumericUpDown();
         private readonly CheckBox _livePreviewBox = new CheckBox();
+        private readonly CheckBox _newAppearanceBox = new CheckBox();
         private readonly CheckBox _turnTimerEnabledBox = new CheckBox();
         private readonly NumericUpDown _turnSecondsBox = new NumericUpDown();
         private readonly NumericUpDown _botThinkSecondsBox = new NumericUpDown();
+        private readonly GameMode _mode;
 
         public NewGameForm()
             : this(null)
@@ -24,7 +28,8 @@ namespace NaneOkey.UI
 
         public NewGameForm(GameSettings initialSettings)
         {
-            Text = "Oyun Ayarları";
+            _mode = initialSettings != null ? initialSettings.Mode : GameMode.NaneOkey;
+            Text = GameModeForm.ModeName(_mode) + " - Oyun Ayarları";
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
@@ -68,7 +73,7 @@ namespace NaneOkey.UI
             _targetScoreBox.Left = 210;
             _targetScoreBox.Top = 49;
             _targetScoreBox.Width = 150;
-            _targetScoreBox.Minimum = 100;
+            _targetScoreBox.Minimum = _mode == GameMode.NaneOkey ? 100 : 1;
             _targetScoreBox.Maximum = 100000;
             _targetScoreBox.Increment = 100;
             _targetScoreBox.Value = 1000;
@@ -79,7 +84,7 @@ namespace NaneOkey.UI
             _livePreviewBox.Left = 210;
             _livePreviewBox.Top = 82;
             _livePreviewBox.Width = 320;
-            _livePreviewBox.Text = "Canlı önizleme (LAN)";
+            _livePreviewBox.Text = "Canlı önizleme";
             _livePreviewBox.Checked = false;
             Controls.Add(_livePreviewBox);
 
@@ -145,6 +150,7 @@ namespace NaneOkey.UI
                     Left = 120,
                     Top = label.Top - 3,
                     Width = 150,
+                    MaxLength = 24,
                     Text = defaultNames[index]
                 };
 
@@ -196,13 +202,20 @@ namespace NaneOkey.UI
                 _seatLabels[index] = label;
             }
 
+            _newAppearanceBox.Left = 210;
+            _newAppearanceBox.Top = 365;
+            _newAppearanceBox.Width = 320;
+            _newAppearanceBox.Text = "Yeni görünümü kullan";
+            _newAppearanceBox.Visible = _mode == GameMode.NaneOkey;
+            Controls.Add(_newAppearanceBox);
+
             var startButton = new Button
             {
                 Text = "Tamam",
                 Left = 280,
                 Top = 420,
                 Width = 90,
-                DialogResult = DialogResult.OK
+                DialogResult = DialogResult.None
             };
 
             var cancelButton = new Button
@@ -218,7 +231,29 @@ namespace NaneOkey.UI
             Controls.Add(cancelButton);
             AcceptButton = startButton;
             CancelButton = cancelButton;
+            startButton.Click += (_, __) =>
+            {
+                var settings = CreateSettings();
+                var names = settings.Players.Where(x => x.IsActive).Select(x => x.Name).ToList();
+                if (names.Any(string.IsNullOrWhiteSpace) || names.Distinct(StringComparer.OrdinalIgnoreCase).Count() != names.Count)
+                {
+                    MessageBox.Show(this, "Her oyuncuya boş olmayan, farklı bir ad vermelisin.", "Oyuncu Adları", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                DialogResult = DialogResult.OK;
+            };
             ApplyInitialSettings(initialSettings);
+            if (_mode != GameMode.NaneOkey)
+            {
+                _playerCountBox.SelectedItem = "4";
+                _playerCountBox.Enabled = false;
+                _livePreviewBox.Checked = false;
+                _livePreviewBox.Enabled = false;
+                _targetScoreBox.Minimum = 1;
+                _targetScoreBox.Increment = 1;
+                if (_mode == GameMode.ClassicOkey && (initialSettings == null || initialSettings.TargetScore == 1000)) _targetScoreBox.Value = 20;
+                targetScoreLabel.Text = "Ceza Puanı Sınırı";
+            }
             ApplyPlayerCountLayout();
         }
 
@@ -232,6 +267,7 @@ namespace NaneOkey.UI
             _playerCountBox.SelectedItem = settings.ActivePlayerCount.ToString();
             _targetScoreBox.Value = ClampNumericValue(_targetScoreBox, settings.TargetScore);
             _livePreviewBox.Checked = settings.EnableLivePreview;
+            _newAppearanceBox.Checked = _mode == GameMode.NaneOkey && settings.UseNewAppearance;
             _turnTimerEnabledBox.Checked = settings.EnableTurnTimer;
             _turnSecondsBox.Value = ClampNumericValue(_turnSecondsBox, settings.TurnSeconds);
             _turnSecondsBox.Enabled = _turnTimerEnabledBox.Checked;
@@ -265,7 +301,9 @@ namespace NaneOkey.UI
         {
             var settings = new GameSettings
             {
-                StartingHandSize = 15,
+                Mode = _mode,
+                UseNewAppearance = _mode == GameMode.NaneOkey && _newAppearanceBox.Checked,
+                StartingHandSize = _mode == GameMode.ClassicOkey ? 14 : _mode == GameMode.Okey101 ? 21 : 15,
                 LanPort = 51234,
                 ActivePlayerCount = int.Parse(_playerCountBox.SelectedItem as string ?? "4"),
                 TargetScore = (int)_targetScoreBox.Value,

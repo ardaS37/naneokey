@@ -1,27 +1,21 @@
-# Build output and packages
-build/
-**/bin/
-**/obj/
-store/out/
-store/package/
-*.exe
-*.pdb
-*.msix
-*.msixbundle
-*.appx
-*.appxbundle
-
-# Certificates and signing material
-*.pfx
-*.cer
-*.crt
-*.pem
-*.key
-*.snk
-
-# Editor and system files
+/build/*.rsp
+/build/*Tests.exe
+/build/CaptureLayouts.*
+/build/tests/
+/build/screens/
+bin/
+obj/
+dist/
+out/
 .vs/
-.idea/
+store/package/
+store/out/
 *.user
 *.suo
-Thumbs.db
+*.pfx
+*.p12
+*.key
+*.pem
+*.snk
+.env
+.env.*

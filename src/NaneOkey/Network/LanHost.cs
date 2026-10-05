@@ -27,6 +27,10 @@ namespace NaneOkey.Network
         private List<string> _localIpCandidates = new List<string>();
 
         public bool EnableLivePreview { get; set; }
+        public GameMode Mode { get; set; }
+        public bool UseNewAppearance { get; set; }
+        public int TargetScore { get; set; } = 20;
+        public string MatchId { get; set; }
         public bool EnableTurnTimer { get; set; }
         public int TurnSeconds { get; set; } = 30;
         public int BotThinkSeconds { get; set; } = 30;
@@ -37,6 +41,8 @@ namespace NaneOkey.Network
         public event Action<Seat> RemotePassRequested;
         public event Action<Seat, IList<Meld>, IList<int>> RemoteCommitRequested;
         public event Action<Seat, IList<Meld>, IList<int>> RemotePreviewRequested;
+        public event Action<Seat, int, bool, IList<Meld>, IList<int>> RemoteDiscardRequested;
+        public event Action<Seat> RemoteDiscardDrawRequested;
         public event Action<Seat, string> RemotePlayerNamed;
         public event Action<Seat, string> RemotePlayerDisconnected;
 
@@ -83,6 +89,9 @@ namespace NaneOkey.Network
         {
             var snapshot = new LanLobbySnapshot
             {
+                ProtocolVersion = LanProtocol.Version,
+                Mode = Mode,
+                UseNewAppearance = Mode == GameMode.NaneOkey && UseNewAppearance,
                 HostName = Dns.GetHostName(),
                 HostIp = LocalIpAddress,
                 HostIpCandidates = new List<string>(_localIpCandidates),
@@ -108,6 +117,11 @@ namespace NaneOkey.Network
 
         public void BroadcastPreview(Seat seat, IList<Meld> melds, IList<int> handTileIds)
         {
+            if (Mode != GameMode.NaneOkey || !EnableLivePreview)
+            {
+                return;
+            }
+
             var payload = new LanTurnPreview
             {
                 Seat = seat.ToString(),
@@ -144,13 +158,20 @@ namespace NaneOkey.Network
 
         public void BroadcastGameState(GameState state)
         {
+            if (state != null)
+            {
+                Mode = state.Mode;
+                UseNewAppearance = state.Mode == GameMode.NaneOkey && state.UseNewAppearance;
+            }
             _lastGameSnapshot = new LanGameSnapshot
             {
+                MatchId = MatchId,
                 State = state == null ? null : LanGameStateDto.FromDomain(state.Clone()),
-                EnableLivePreview = EnableLivePreview,
+                EnableLivePreview = EnableLivePreview && Mode == GameMode.NaneOkey,
                 EnableTurnTimer = EnableTurnTimer,
                 TurnSeconds = TurnSeconds,
-                BotThinkSeconds = BotThinkSeconds
+                BotThinkSeconds = BotThinkSeconds,
+                TargetScore = TargetScore
             };
             Broadcast(new LanEnvelope
             {
@@ -198,9 +219,22 @@ namespace NaneOkey.Network
                         }
 
                         var envelope = LanJson.Deserialize<LanEnvelope>(line);
+                        if (envelope == null)
+                        {
+                            continue;
+                        }
                         if (envelope.Type == "hello")
                         {
                             var hello = LanJson.Deserialize<LanHello>(envelope.Payload);
+                            if (hello == null || hello.ProtocolVersion != LanProtocol.Version)
+                            {
+                                SendToClient(client, new LanEnvelope
+                                {
+                                    Type = "text",
+                                    Payload = LanProtocol.VersionMismatchMessage(hello != null ? hello.ProtocolVersion : 0)
+                                });
+                                break;
+                            }
                             if (hello == null || !string.Equals(hello.RoomName, _roomName, StringComparison.OrdinalIgnoreCase))
                             {
                                 var writer = new StreamWriter(client.GetStream());
@@ -244,7 +278,7 @@ namespace NaneOkey.Network
                             assignmentWriter.WriteLine(LanJson.Serialize(new LanEnvelope
                             {
                                 Type = "assign",
-                                Payload = LanJson.Serialize(new LanSeatAssignment { Seat = assigned.ToString() })
+                                Payload = LanJson.Serialize(new LanSeatAssignment { ProtocolVersion = LanProtocol.Version, Seat = assigned.ToString() })
                             }));
                             if (_lastGameSnapshot != null)
                             {
@@ -257,6 +291,11 @@ namespace NaneOkey.Network
                         }
                         else if (envelope.Type == "text")
                         {
+                            Seat chatSeat;
+                            if (!TryGetClientSeat(client, out chatSeat))
+                            {
+                                continue;
+                            }
                             string playerName;
                             lock (_sync)
                             {
@@ -269,46 +308,75 @@ namespace NaneOkey.Network
                         }
                         else if (envelope.Type == "draw")
                         {
-                            if (_clientSeats.ContainsKey(client))
+                            Seat assignedSeat;
+                            if (TryGetClientSeat(client, out assignedSeat))
                             {
                                 var request = LanJson.Deserialize<LanDrawRequest>(envelope.Payload);
                                 RemoteDrawRequested?.Invoke(
-                                    _clientSeats[client],
+                                    assignedSeat,
                                     request != null ? request.TargetRow : -1,
                                     request != null ? request.TargetColumn : -1);
                             }
                         }
                         else if (envelope.Type == "pass")
                         {
-                            if (_clientSeats.ContainsKey(client))
+                            Seat assignedSeat;
+                            if (TryGetClientSeat(client, out assignedSeat))
                             {
-                                RemotePassRequested?.Invoke(_clientSeats[client]);
+                                RemotePassRequested?.Invoke(assignedSeat);
                             }
                         }
                         else if (envelope.Type == "commit")
                         {
-                            if (_clientSeats.ContainsKey(client))
+                            Seat assignedSeat;
+                            if (TryGetClientSeat(client, out assignedSeat))
                             {
                                 var layout = LanJson.Deserialize<LanTurnLayout>(envelope.Payload);
                                 RemoteCommitRequested?.Invoke(
-                                    _clientSeats[client],
+                                    assignedSeat,
                                     layout != null && layout.Melds != null
                                         ? layout.Melds.ConvertAll(x => x.ToDomain())
                                         : new List<Meld>(),
-                                    layout != null ? layout.HandTileIds : new List<int>());
+                                    layout != null && layout.HandTileIds != null ? layout.HandTileIds : new List<int>());
+                            }
+                        }
+                        else if (envelope.Type == "discard")
+                        {
+                            Seat assignedSeat;
+                            if (TryGetClientSeat(client, out assignedSeat))
+                            {
+                                var request = LanJson.Deserialize<LanDiscardRequest>(envelope.Payload);
+                                if (request != null)
+                                {
+                                    RemoteDiscardRequested?.Invoke(
+                                        assignedSeat,
+                                        request.TileId,
+                                        request.FinishClassic,
+                                        request.Melds != null ? request.Melds.ConvertAll(x => x.ToDomain()) : new List<Meld>(),
+                                        request.HandTileIds ?? new List<int>());
+                                }
+                            }
+                        }
+                        else if (envelope.Type == "discard_draw")
+                        {
+                            Seat assignedSeat;
+                            if (TryGetClientSeat(client, out assignedSeat))
+                            {
+                                RemoteDiscardDrawRequested?.Invoke(assignedSeat);
                             }
                         }
                         else if (envelope.Type == "preview")
                         {
-                            if (_clientSeats.ContainsKey(client))
+                            Seat assignedSeat;
+                            if (Mode == GameMode.NaneOkey && EnableLivePreview && TryGetClientSeat(client, out assignedSeat))
                             {
                                 var preview = LanJson.Deserialize<LanTurnPreview>(envelope.Payload);
                                 RemotePreviewRequested?.Invoke(
-                                    _clientSeats[client],
+                                    assignedSeat,
                                     preview != null && preview.Melds != null
                                         ? preview.Melds.ConvertAll(x => x.ToDomain())
                                         : new List<Meld>(),
-                                    preview != null ? preview.HandTileIds : new List<int>());
+                                    preview != null && preview.HandTileIds != null ? preview.HandTileIds : new List<int>());
                             }
                         }
                     }
@@ -316,6 +384,14 @@ namespace NaneOkey.Network
             }
             catch (IOException)
             {
+            }
+            catch (ArgumentException)
+            {
+                RaiseLog("LAN istemcisinden geçersiz ileti alındı; bağlantı kapatıldı.");
+            }
+            catch (InvalidOperationException)
+            {
+                RaiseLog("LAN istemcisinden geçersiz ileti alındı; bağlantı kapatıldı.");
             }
             finally
             {
@@ -346,6 +422,21 @@ namespace NaneOkey.Network
             }
         }
 
+        private bool TryGetClientSeat(TcpClient client, out Seat seat)
+        {
+            lock (_sync)
+            {
+                return _clientSeats.TryGetValue(client, out seat);
+            }
+        }
+
+        private static void SendToClient(TcpClient client, LanEnvelope envelope)
+        {
+            var writer = new StreamWriter(client.GetStream());
+            writer.AutoFlush = true;
+            writer.WriteLine(LanJson.Serialize(envelope));
+        }
+
         private void Broadcast(LanEnvelope envelope)
         {
             var line = LanJson.Serialize(envelope);
@@ -353,6 +444,10 @@ namespace NaneOkey.Network
             {
                 foreach (var client in _clients.ToList())
                 {
+                    if (!_clientSeats.ContainsKey(client))
+                    {
+                        continue;
+                    }
                     try
                     {
                         var writer = new StreamWriter(client.GetStream());
@@ -383,6 +478,9 @@ namespace NaneOkey.Network
                         client.EnableBroadcast = true;
                         var room = new LanRoomAnnouncement
                         {
+                            ProtocolVersion = LanProtocol.Version,
+                            Mode = Mode,
+                            UseNewAppearance = Mode == GameMode.NaneOkey && UseNewAppearance,
                             HostName = Dns.GetHostName(),
                             HostIp = LocalIpAddress,
                             HostIpCandidates = new List<string>(_localIpCandidates),
@@ -419,6 +517,9 @@ namespace NaneOkey.Network
 
             var room = new LanRoomAnnouncement
             {
+                ProtocolVersion = LanProtocol.Version,
+                Mode = Mode,
+                UseNewAppearance = Mode == GameMode.NaneOkey && UseNewAppearance,
                 HostName = Dns.GetHostName(),
                 HostIp = LocalIpAddress,
                 HostIpCandidates = new List<string>(_localIpCandidates),
@@ -441,7 +542,7 @@ namespace NaneOkey.Network
                 try
                 {
                     listener.Start();
-                    _port = port;
+                    _port = ((IPEndPoint)listener.LocalEndpoint).Port;
                     return listener;
                 }
                 catch (SocketException ex)

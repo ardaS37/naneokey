@@ -1,0 +1,10 @@
+Nane Okey 4.0.0
+
+- Yeni oyun seçiminde Nane Okey, Klasik Okey ve 101 Okey modları eklendi.
+- Klasik Okey ve 101 Okey için oyuna uygun masa tasarımları ve oynanış eklendi.
+- Nane Okey'in mevcut kuralları korundu; isteğe bağlı yeni masa görünümü eklendi.
+- Ortadan taş çekerken sürükle bırak desteği eklendi.
+- Taşlar ve yazılar büyütüldü; küçük ekranlarda masa ve ıstaka kaydırma iyileştirildi.
+- Klasik Okey ve 101 Okey'de taş alma, sağa taş atma ve sıra yönü düzeltildi.
+- Günlük ve sohbet Yardım menüsüne taşındı; arayüz düzenlemeleri yapıldı.
+- LAN ve online oyunlarda mod ve görünüm ayarlarının aktarımı iyileştirildi.

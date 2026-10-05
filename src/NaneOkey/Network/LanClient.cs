@@ -14,6 +14,9 @@ namespace NaneOkey.Network
         private TcpClient _client;
         private Thread _listenThread;
 
+        public GameMode Mode { get; private set; }
+        public bool UseNewAppearance { get; private set; }
+
         public event Action<string> LogReceived;
         public event Action<LanLobbySnapshot> LobbyReceived;
         public event Action<GameState, LanGameSnapshot> GameStateReceived;
@@ -62,6 +65,7 @@ namespace NaneOkey.Network
                 Type = "hello",
                 Payload = LanJson.Serialize(new LanHello
                 {
+                    ProtocolVersion = LanProtocol.Version,
                     PlayerName = playerName,
                     RoomName = roomName
                 })
@@ -130,7 +134,7 @@ namespace NaneOkey.Network
 
         public void SendPreviewRequest(Seat seat, IList<Meld> melds, IList<int> handTileIds)
         {
-            if (!IsConnected)
+            if (!IsConnected || Mode != GameMode.NaneOkey)
             {
                 return;
             }
@@ -145,6 +149,35 @@ namespace NaneOkey.Network
                     HandTileIds = handTileIds == null ? new List<int>() : new List<int>(handTileIds)
                 })
             });
+        }
+
+        public void SendDiscardRequest(Seat seat, int tileId, bool finishClassic, IList<Meld> melds, IList<int> handTileIds)
+        {
+            if (!IsConnected)
+            {
+                return;
+            }
+
+            Send(new LanEnvelope
+            {
+                Type = "discard",
+                Payload = LanJson.Serialize(new LanDiscardRequest
+                {
+                    Seat = seat.ToString(),
+                    TileId = tileId,
+                    FinishClassic = finishClassic,
+                    Melds = melds == null ? new List<LanMeldDto>() : melds.Select(LanMeldDto.FromDomain).ToList(),
+                    HandTileIds = handTileIds == null ? new List<int>() : new List<int>(handTileIds)
+                })
+            });
+        }
+
+        public void SendDiscardDrawRequest()
+        {
+            if (IsConnected)
+            {
+                Send(new LanEnvelope { Type = "discard_draw", Payload = string.Empty });
+            }
         }
 
         private void ListenLoop()
@@ -162,13 +195,33 @@ namespace NaneOkey.Network
                         }
 
                         var envelope = LanJson.Deserialize<LanEnvelope>(line);
+                        if (envelope == null)
+                        {
+                            continue;
+                        }
                         if (envelope.Type == "lobby")
                         {
-                            LobbyReceived?.Invoke(LanJson.Deserialize<LanLobbySnapshot>(envelope.Payload));
+                            var lobby = LanJson.Deserialize<LanLobbySnapshot>(envelope.Payload);
+                            if (lobby != null && lobby.ProtocolVersion != LanProtocol.Version)
+                            {
+                                LogReceived?.Invoke(LanProtocol.VersionMismatchMessage(lobby.ProtocolVersion));
+                                break;
+                            }
+                            if (lobby != null)
+                            {
+                                Mode = lobby.Mode;
+                                UseNewAppearance = Mode == GameMode.NaneOkey && lobby.UseNewAppearance;
+                                LobbyReceived?.Invoke(lobby);
+                            }
                         }
                         else if (envelope.Type == "assign")
                         {
                             var assignment = LanJson.Deserialize<LanSeatAssignment>(envelope.Payload);
+                            if (assignment != null && assignment.ProtocolVersion != LanProtocol.Version)
+                            {
+                                LogReceived?.Invoke(LanProtocol.VersionMismatchMessage(assignment.ProtocolVersion));
+                                break;
+                            }
                             Seat seat;
                             if (assignment != null && Enum.TryParse(assignment.Seat, out seat))
                             {
@@ -180,6 +233,14 @@ namespace NaneOkey.Network
                             var snapshot = LanJson.Deserialize<LanGameSnapshot>(envelope.Payload);
                             if (snapshot != null && snapshot.State != null)
                             {
+                                if (snapshot.ProtocolVersion != LanProtocol.Version)
+                                {
+                                    LogReceived?.Invoke(LanProtocol.VersionMismatchMessage(snapshot.ProtocolVersion));
+                                    break;
+                                }
+                                Mode = snapshot.State.Mode;
+                                UseNewAppearance = Mode == GameMode.NaneOkey && snapshot.State.UseNewAppearance;
+                                snapshot.EnableLivePreview = snapshot.EnableLivePreview && Mode == GameMode.NaneOkey;
                                 GameStateReceived?.Invoke(snapshot.State.ToDomain(), snapshot);
                             }
                         }
@@ -187,7 +248,7 @@ namespace NaneOkey.Network
                         {
                             var preview = LanJson.Deserialize<LanTurnPreview>(envelope.Payload);
                             Seat seat;
-                            if (preview != null && Enum.TryParse(preview.Seat, out seat))
+                            if (Mode == GameMode.NaneOkey && preview != null && Enum.TryParse(preview.Seat, out seat))
                             {
                                 var melds = preview.Melds != null
                                     ? preview.Melds.ConvertAll(x => x.ToDomain())
@@ -205,6 +266,18 @@ namespace NaneOkey.Network
             catch (IOException)
             {
                 LogReceived?.Invoke("LAN baglantisi koptu.");
+            }
+            catch (ArgumentException)
+            {
+                LogReceived?.Invoke("LAN sunucusundan geçersiz ileti alındı; bağlantı kapatıldı.");
+            }
+            catch (InvalidOperationException)
+            {
+                LogReceived?.Invoke("LAN sunucusundan geçersiz ileti alındı; bağlantı kapatıldı.");
+            }
+            finally
+            {
+                Dispose();
             }
         }
 

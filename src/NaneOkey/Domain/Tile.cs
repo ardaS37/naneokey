@@ -18,9 +18,24 @@ namespace NaneOkey.Domain
 
         public int Number { get; private set; }
 
+        public bool IsFalseJoker { get; set; }
+
+        public bool IsJoker { get; set; }
+
+        // A joker's represented value is fixed once its meld is committed in 101.
+        public TileColor JokerColor { get; set; }
+
+        public int JokerNumber { get; set; }
+
         public Tile Clone()
         {
-            return new Tile(Id, Color, Number);
+            return new Tile(Id, Color, Number)
+            {
+                IsFalseJoker = IsFalseJoker,
+                IsJoker = IsJoker,
+                JokerColor = JokerColor,
+                JokerNumber = JokerNumber
+            };
         }
 
         public string ColorName
@@ -43,7 +58,7 @@ namespace NaneOkey.Domain
 
         public override string ToString()
         {
-            return Number + ColorSymbol();
+            return IsFalseJoker ? "Sahte okey" : Number + ColorSymbol() + (IsJoker ? " (Okey)" : string.Empty);
         }
 
         private string ColorSymbol()

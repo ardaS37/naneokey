@@ -29,12 +29,18 @@ namespace NaneOkey.Domain
 
         public bool HasOpened { get; set; }
 
+        public bool OpenedWithPairs { get; set; }
+
+        public int RoundPenalty { get; set; }
+
         public List<Tile> Hand { get; private set; }
 
         public PlayerState Clone()
         {
             var clone = new PlayerState(Seat, Name, Type, Difficulty, IsActive);
             clone.HasOpened = HasOpened;
+            clone.OpenedWithPairs = OpenedWithPairs;
+            clone.RoundPenalty = RoundPenalty;
             clone.Hand.AddRange(Hand.Select(x => x.Clone()));
             return clone;
         }

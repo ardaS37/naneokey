@@ -26,11 +26,17 @@ namespace NaneOkey.Domain
 
         public int StartColumn { get; set; }
 
+        public Seat OwnerSeat { get; set; }
+
+        public bool IsPair { get; set; }
+
         public Meld Clone()
         {
             var clone = new Meld(Tiles);
             clone.BoardRow = BoardRow;
             clone.StartColumn = StartColumn;
+            clone.OwnerSeat = OwnerSeat;
+            clone.IsPair = IsPair;
             return clone;
         }
 
