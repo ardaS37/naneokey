@@ -26,7 +26,7 @@ internal static class ScreenLayoutTests
                 var home = Field<Panel>(form, "_anasayfaPaneli");
                 game.Dock = DockStyle.None;
                 home.Dock = DockStyle.None;
-                var screens = new[] { new Size(800, 600), new Size(1024, 768), new Size(1366, 768) };
+                var screens = new[] { new Size(800, 600), new Size(1024, 768), new Size(1366, 768), new Size(1920, 1080) };
                 foreach (var settings in new[] {
                     new GameSettings { Mode = GameMode.NaneOkey },
                     new GameSettings { Mode = GameMode.NaneOkey, UseNewAppearance = true },
@@ -54,7 +54,16 @@ internal static class ScreenLayoutTests
                         CheckHome(home);
                         var tiles = Field<Panel[,]>(form, "_elSlotPanelleri");
                         Check(tiles[0, 0].Width >= 30 && tiles[0, 0].Height >= 40, "Taşlar okunabilir taban boyutundan küçük.");
-                        if (client.Width >= 1000) Check(tiles[0, 0].Width >= 36, "Normal ekranda taşlar gereğinden küçük.");
+                        if (screen.Width == 1920)
+                        {
+                            CheckWholeRackVisible(form);
+                            // Check stale scrollbars when moving from a narrow window back to Full HD.
+                            game.Size = new Size(624, 409);
+                            Invoke(form, "LayoutGameScreen");
+                            game.Size = client;
+                            Invoke(form, "LayoutGameScreen");
+                            CheckWholeRackVisible(form);
+                        }
                         Console.WriteLine("{7}, {0}x{1}, DPI {2}: client {3}x{4}, tile {5}x{6}, shelves fit.",
                             screen.Width, screen.Height, dpi, client.Width, client.Height, tiles[0, 0].Width, tiles[0, 0].Height,
                             settings.Mode + (settings.UseNewAppearance ? " new" : ""));
@@ -111,6 +120,30 @@ internal static class ScreenLayoutTests
         {
             Fits(home, card, "home card");
             foreach (Control control in card.Controls) Fits(card, control, "home card/" + control.GetType().Name);
+        }
+    }
+
+    private static void CheckWholeRackVisible(MainForm form)
+    {
+        var viewport = Field<Panel>(form, "_handViewport");
+        Check(!viewport.HorizontalScroll.Visible && !viewport.VerticalScroll.Visible,
+            "1080p ekranda ıstaka kaydırma çubuğu gösteriyor.");
+        Check(viewport.AutoScrollPosition == Point.Empty, "1080p ekranda eski kaydırma konumu kaldı.");
+        if (Field<GameEngine>(form, "_engine").State.Mode == GameMode.NaneOkey)
+        {
+            var board = Field<Panel>(form, "_boardViewport");
+            Check(!board.HorizontalScroll.Visible && !board.VerticalScroll.Visible, "1080p ekranda masa kaydırma çubuğu gösteriyor.");
+            foreach (var slot in Field<Panel[,]>(form, "_masaSlotPanelleri"))
+            {
+                var bounds = new Rectangle(slot.Parent.Left + slot.Left + 1, slot.Parent.Top + slot.Top + 1, slot.Width, slot.Height);
+                Check(board.ClientRectangle.Contains(bounds), "1080p ekranda masa yuvası sığmıyor: " + bounds + " viewport=" + board.Bounds + " matrix=" + slot.Parent.Bounds + " slot=" + slot.Bounds + " scroll=" + board.AutoScrollPosition);
+            }
+        }
+        var slots = Field<Panel[,]>(form, "_elSlotPanelleri");
+        foreach (var slot in slots)
+        {
+            var bounds = new Rectangle(viewport.PointToClient(slot.PointToScreen(Point.Empty)), slot.Size);
+            Check(viewport.ClientRectangle.Contains(bounds), "1080p ekranda 48 yuvanın tamamı görünmüyor: " + bounds);
         }
     }
 

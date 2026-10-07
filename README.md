@@ -1,31 +1,6 @@
 # Nane Okey
 
-Windows desktop Okey game with Nane Okey, Classic Okey and 101 Okey modes, bots, LAN play and optional Photon Realtime rooms.
-
-> **Public source note:** Build output, Microsoft Store signing material, personal files and service credentials are intentionally excluded.
-
-## Highlights
-
-- Nane Okey, Classic Okey and 101 Okey modes
-- Single-player bots and configurable tables
-- LAN host/join flow
-- Optional Photon Realtime online rooms (requires your own local App ID)
-- WinForms UI targeting Windows 7 SP1 and later
-
-## Local online configuration
-
-The public source uses a zero-value placeholder for the Photon App ID. Replace it locally in `src/NaneOkey/UI/MainForm.cs` with an App ID from your own Photon project. Never commit real IDs, tokens, certificates or passwords.
-
-## Build and test
-
-```powershell
-.\build.ps1
-.\build.ps1 -Tests
-```
-
-Generated `build/` output and Store packages are ignored. Store files under `store/` are packaging templates only.
-
-Klasik masaustu Okey hissine yakin, `WinForms` tabanli ve `Windows 7 SP1+` hedefli oyun. v4.0.0.0 surumunde Nane Okey, Klasik Okey ve 101 Okey secilebilir. Cikti: `build/NaneOkey.exe`.
+Klasik masaustu Okey hissine yakin, `WinForms` tabanli ve `Windows 7 SP1+` hedefli oyun. v4.0.1.0 surumunde Nane Okey, Klasik Okey ve 101 Okey secilebilir. Cikti: `build/NaneOkey.exe`.
 
 ## v4 Oyun Secimi
 - Tek oyunculu, Yeni Oyun, LAN oda kurma ve online oda kurma akisinda once oyun turu, sonra Oyun Ayarlari acilir.
@@ -36,7 +11,7 @@ Klasik masaustu Okey hissine yakin, `WinForms` tabanli ve `Windows 7 SP1+` hedef
 - Klasik/101'de ilk oyuncu cekmeden atar; diger turlarda cekme ve atma zorunludur. Kendi atik alanina tek tas suruklemek turu tamamlar. Klasikte son tas `Bitir` alanina birakilir. `Tas At / Bitir` veya F4 alternatif secim ekranini acar. `Yandan Tas Al` onceki oyuncunun son atigini alir.
 - Klasik/101 sirasi sagdaki oyuncuya gecer: Cenup, Sark, Simal, Garp. Gereksiz tas sagdaki atik alanina birakilir; onceki oyuncunun attigi tas soldan alinir. Kapali koltuklar atlanir. Nane Okey'in mevcut tur akisi korunur.
 - Klasik/101 ceza puani kullanir; en dusuk toplam puan onde. Ayarlardaki ceza sinirina bir oyuncu ulasinca en dusuk toplam puanli oyuncu kazanir. Ayrintilar modun `Nasil Oynanir` ekranindadir.
-- Klasik/101 canli onizleme kapatilir. LAN protokol v4, Photon uygulama surumu 4.0.0.0 kullanir; eski surumlerle ortak oda desteklenmez.
+- Klasik/101 canli onizleme kapatilir. LAN protokol v4, Photon uygulama surumu 4.0.1.0 kullanir; eski surumlerle ortak oda desteklenmez.
 - 101 kural kaynaklari: [Zynga okey degisimi](https://zyngasupport.zendesk.com/hc/tr/articles/115003539012-Yerden-Okey-al%C4%B1nabilir-mi), [cift isleme](https://zyngasupport.zendesk.com/hc/tr/articles/115003521251-Seri-a%C3%A7an-biri-%C3%A7ifte-i%C5%9Fleme-yapabilir-mi), [deste bitisi cezasi](https://zyngasupport.zendesk.com/hc/tr/articles/115003521431-El-a%C3%A7madan-oyun-biterse-ne-kadar-ceza-al%C4%B1r%C4%B1m), [elden bitme](https://zyngasupport.zendesk.com/hc/tr/articles/115003521471-Elden-bitme-nedir), [Baro 101 turnuva kurallari madde 11](https://medya.barobirlik.org.tr/barowebsite/uploads/52/kural1.pdf). Cift acanin bir pere ayni tur en fazla iki tas islemesi dogrulanir. Deste bitince acilmayan 202, acilmis oyuncu elde kalan taslarinin cezasini alir; kimse acmadan elden bitis cezalari katlar. Ilk acilista 101 baraji korunur.
 
 ## Geleneksel Masalar ve Fare Kullanimi
@@ -50,7 +25,7 @@ Klasik masaustu Okey hissine yakin, `WinForms` tabanli ve `Windows 7 SP1+` hedef
 - `Bot Debug` baslangicta gizli ve kapalidir. `Yardim > Hakkinda` penceresinde F1'e uc kez basinca o oturum icin Yardim menusunde gorunur.
 
 ## Ekran Olceklemesi
-Pencere ekranin kullanilabilir alanina sigar. Taslar en az 30x40 piksel, normal ekranlarda daha buyuk cizilir; numaralari buyutulup ortalanir. Nane'nin tum masa yuvalari ve iki rafli istakanin 48 konumu kaydirilarak erisilebilir. Suruklenen tasi kaydirma alaninin kenarinda tutmak otomatik kaydirir. Klasik/101 baslangic elleri iki rafa dagilir. 800x600, 1024x768 ve 1366x768 icin 96/120/144 DPI yerlesim ve okunabilirlik testleri vardir.
+Pencere ekranin kullanilabilir alanina sigar. Taslar en az 30x40 piksel, normal ekranlarda daha buyuk cizilir; numaralari buyutulup ortalanir. Istaka olcegi 24 sutunun tamamini, panel kenarliklarini ve ic/dis bosluklari hesaba katar. 1920x1080 ekranda 96/120/144 DPI icin iki raf ve 48 yuva yatay kaydirma olmadan sigar. Daha dar pencerelerde okunabilir tas boyutu korunarak gerektiginde kaydirma kullanilir. Nane masasinin 22x10 yuvasi da 1080p ekranda kaydirmadan sigar; masa taslari elden bagimsiz olceklenir. Dar pencerelerde tum yuvalar kaydirilarak erisilebilir. Yeni gorunumde rakip istakalari buyuk ve kenarlarda ortalidir. Bos masa hucreleri cizilmez, kece dokusu pencere boyutuna gore onbelleklenir ve surukleme sonunda yinelenen tam ekran cizimleri kaldirilmistir. Suruklenen tasi kaydirma alaninin kenarinda tutmak otomatik kaydirir. Klasik/101 baslangic elleri iki rafa dagilir. 800x600, 1024x768, 1366x768 ve 1920x1080 icin 96/120/144 DPI yerlesim ve okunabilirlik testleri vardir.
 
 ## Windows Derleme ve Test
 Bu ortamda PowerShell ile `.\build.ps1` EXE uretir. `.\build.ps1 -Tests` motor, Nane regresyon, LAN loopback, ekran yerlesimi ve UI akis testlerini calistirir. Derleme .NET SDK Roslyn derleyicisini ve kurulu .NET Framework referanslarini kullanir; uygulama x86 .NET Framework olarak uretilir. Photon DLL, ikon, ifade/cay resimleri ve sesler EXE'e gomuludur. LAN testleri sadece 127.0.0.1 uzerinden gecici port kullanir.

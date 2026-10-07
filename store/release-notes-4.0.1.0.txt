@@ -1,0 +1,6 @@
+Nane Okey 4.0.1
+
+- Masa ve iki raf 1080p ekranlarda %100, %125 ve %150 ölçekle kaydırmadan sığacak şekilde iyileştirildi.
+- Rakip ıstakaları büyütüldü ve kenarlarda ortalandı.
+- Yeni Nane Okey görünümündeki gereksiz çizimler azaltılarak performans iyileştirildi.
+- Taş sürükleme ve bırakma davranışları iyileştirildi; Nane Okey kuralları korundu.

@@ -1,10 +1,11 @@
 param(
     [string]$PackageName = "Sapsoft.NaneOkeyOyunu",
-    [string]$Publisher = "CN=YOUR-PARTNER-CENTER-PUBLISHER",
+    [string]$Publisher = "CN=7F83F93C-2867-4649-9D70-B32934D533D5",
     [string]$PublisherDisplayName = "Sapsoft",
-    [string]$Version = "4.0.0.0",
+    [string]$Version = "4.0.1.0",
     [string]$ExePath = "build\NaneOkey.exe",
-    [switch]$SkipSigning
+    [string]$PfxPath = "",
+    [string]$PfxPassword = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,7 +36,7 @@ if (-not (Test-Path $exeFull)) {
 }
 
 if ($Version -notmatch '^\d+\.\d+\.\d+\.0$') {
-    throw "Store sürümü dört parçalı olmalı ve son parça 0 olmalı: örnek 4.0.0.0."
+    throw "Store sürümü dört parçalı olmalı ve son parça 0 olmalı: örnek 4.0.1.0."
 }
 $packageVersion = [version]$Version
 if ($packageVersion.Major -lt 1 -or $packageVersion.Major -gt 65535 -or $packageVersion.Minor -gt 65535 -or $packageVersion.Build -gt 65535) {
@@ -78,6 +79,15 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $outPackage)) {
     throw "MSIX paketleme başarısız: $outPackage"
 }
 
-Write-Warning "The generated package is unsigned. Sign it only in your own local or CI environment."
+if ($PfxPath) {
+    if (-not $signtool) { throw "signtool.exe bulunamadı; imzalama yapılamadı." }
+    if ($PfxPassword) {
+        & $signtool sign /fd SHA256 /a /f $PfxPath /p $PfxPassword $outPackage
+    } else {
+        & $signtool sign /fd SHA256 /a /f $PfxPath $outPackage
+    }
+    if ($LASTEXITCODE -ne 0) { throw "MSIX imzalama başarısız: $outPackage" }
+}
+
 Write-Host "MSIX hazır: $outPackage"
-Write-Host "Set the Partner Center Publisher value locally before packaging."
+Write-Host "Store için Publisher parametresini Partner Center Package identity değerindeki Publisher ile aynı yap."

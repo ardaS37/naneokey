@@ -1,7 +1,10 @@
-param([switch]$Tests)
+param([switch]$Tests, [string]$OutputDirectory = 'build')
 $ErrorActionPreference = 'Stop'
 $taskRoot = $PSScriptRoot
-$taskBuild = Join-Path $taskRoot 'build'
+$taskBuild = [IO.Path]::GetFullPath((Join-Path $taskRoot $OutputDirectory))
+if (-not $taskBuild.StartsWith($taskRoot.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Çıktı klasörü proje dizininin içinde olmalı.'
+}
 New-Item -ItemType Directory -Force -Path $taskBuild | Out-Null
 $taskDotnet = (Get-Command dotnet.exe).Source
 $taskSdk = & $taskDotnet --list-sdks | Select-Object -Last 1

@@ -52,6 +52,8 @@ namespace NaneOkey.UI
         }
 
         private GameState _state;
+        private Bitmap _feltCache;
+        private readonly Font _rackFont = new Font("Tahoma", 11F, FontStyle.Bold);
         private Seat _localSeat;
         private IList<Meld> _displayMelds;
         private bool _pending;
@@ -188,8 +190,8 @@ namespace NaneOkey.UI
             if (w < 80 || h < 80) { _scrollbar.Visible = false; return; }
             if (IsNane)
             {
-                _sideWidth = 60;
-                _topHeight = Math.Min(64, h / 2);
+                _sideWidth = 84;
+                _topHeight = Math.Min(84, h / 2);
                 _bottomTop = h - 10;
                 _meldViewport = Rectangle.Empty;
                 _scrollbar.Visible = false;
@@ -352,6 +354,17 @@ namespace NaneOkey.UI
         {
             var area = ClientRectangle;
             if (area.Width <= 0 || area.Height <= 0) return;
+            if (_feltCache == null || _feltCache.Size != area.Size)
+            {
+                if (_feltCache != null) _feltCache.Dispose();
+                _feltCache = new Bitmap(area.Width, area.Height);
+                using (var surface = Graphics.FromImage(_feltCache)) DrawFeltSurface(surface, area);
+            }
+            g.DrawImageUnscaled(_feltCache, Point.Empty);
+        }
+
+        private static void DrawFeltSurface(Graphics g, Rectangle area)
+        {
             using (var felt = new LinearGradientBrush(area, Color.FromArgb(32, 107, 72), Color.FromArgb(18, 78, 51), 90F)) g.FillRectangle(felt, area);
             using (var weave = new Pen(Color.FromArgb(11, 213, 231, 171)))
             {
@@ -389,28 +402,45 @@ namespace NaneOkey.UI
             return PlayerName(seat) + (_seatScores != null && _seatScores.TryGetValue(seat, out score) ? " [" + score + "]" : string.Empty);
         }
 
+        public Rectangle GetOpponentRackBounds(Seat seat)
+        {
+            EnsureTableLayout();
+            var relative = ((int)seat - (int)_localSeat + 4) % 4;
+            var w = ClientSize.Width;
+            var h = ClientSize.Height;
+            if (relative == 0 || w < 80 || h < 80) return Rectangle.Empty;
+            if (relative == 2)
+            {
+                var width = Math.Min(w - 24, Math.Max(72, Math.Min(360, w / 3)));
+                var top = _topHeight < 40 ? 21 : 25;
+                return new Rectangle((w - width) / 2, top, width, Math.Max(7, Math.Min(IsNane ? 50 : 37, _topHeight - top - 1)));
+            }
+            var upper = IsNane ? 16 : _topHeight + (w >= 480 && h >= 300 ? 84 : 64);
+            var lower = IsNane ? h - 16 : _bottomTop - 5;
+            var height = Math.Max(0, Math.Min(IsNane ? 280 : 240, lower - upper));
+            var thickness = Math.Min(w >= 600 ? 46 : 29, _sideWidth - 17);
+            return new Rectangle(relative == 1 ? 11 : w - thickness - 11,
+                upper + (lower - upper - height) / 2, thickness, height);
+        }
+
         private void DrawOpponentRacks(Graphics g)
         {
             var w = ClientSize.Width;
             var opposite = PlayerAt(RelativeSeat(2));
             if (opposite != null)
             {
-                var rackWidth = Math.Min(w - 24, Math.Max(72, Math.Min(238, w / 3)));
-                var rackTop = _topHeight < 40 ? 21 : 25;
-                var rect = new Rectangle((w - rackWidth) / 2, rackTop, rackWidth, Math.Max(7, Math.Min(31, _topHeight - rackTop - 1)));
-                DrawPlayerName(g, opposite, new Rectangle(rect.Left - 20, 5, rect.Width + 40, 17), false);
+                var rect = GetOpponentRackBounds(RelativeSeat(2));
+                DrawPlayerName(g, opposite, new Rectangle(rect.Left - 20, 5, rect.Width + 40, 20), false);
                 DrawClosedRack(g, rect, opposite.Hand.Count, false);
             }
-            var verticalTop = _topHeight + (IsNane ? 5 : ClientSize.Width >= 480 && ClientSize.Height >= 300 ? 84 : 64);
-            var verticalHeight = Math.Max(0, Math.Min(158, _bottomTop - verticalTop - 5));
-            if (verticalHeight < 40) return;
             for (var relative = 1; relative <= 3; relative += 2)
             {
                 var player = PlayerAt(RelativeSeat(relative));
                 if (player == null) continue;
-                var rect = new Rectangle(relative == 1 ? 11 : w - 40, verticalTop, 29, verticalHeight);
+                var rect = GetOpponentRackBounds(RelativeSeat(relative));
+                if (rect.Height < 40) continue;
                 DrawClosedRack(g, rect, player.Hand.Count, true);
-                var nameBounds = new Rectangle(relative == 1 ? 42 : w - 59, verticalTop - 2, 17, verticalHeight + 4);
+                var nameBounds = new Rectangle(relative == 1 ? rect.Right + 2 : rect.Left - 22, rect.Top - 2, 20, rect.Height + 4);
                 DrawPlayerName(g, player, nameBounds, true);
             }
         }
@@ -422,13 +452,14 @@ namespace NaneOkey.UI
             if (Is101 && player.HasOpened) text += player.OpenedWithPairs ? " · çift" : " · açık";
             if (IsNane) text += player.HasOpened ? " · açık" : " · kapalı";
             if (active) text = "› " + text;
-            if (!vertical) DrawText(g, text, active ? _titleFont : Font, active ? Color.FromArgb(255, 224, 135) : Color.FromArgb(235, 226, 200), bounds, ContentAlignment.MiddleCenter);
+            var nameFont = ClientSize.Width >= 600 && ClientSize.Height >= 300 ? _rackFont : active ? _titleFont : Font;
+            if (!vertical) DrawText(g, text, nameFont, active ? Color.FromArgb(255, 224, 135) : Color.FromArgb(235, 226, 200), bounds, ContentAlignment.MiddleCenter);
             else
             {
                 var saved = g.Save();
                 g.TranslateTransform(bounds.Left, bounds.Bottom);
                 g.RotateTransform(-90F);
-                DrawText(g, text, active ? _titleFont : Font, active ? Color.FromArgb(255, 224, 135) : Color.FromArgb(235, 226, 200), new Rectangle(0, 0, bounds.Height, bounds.Width), ContentAlignment.MiddleCenter);
+                DrawText(g, text, nameFont, active ? Color.FromArgb(255, 224, 135) : Color.FromArgb(235, 226, 200), new Rectangle(0, 0, bounds.Height, bounds.Width), ContentAlignment.MiddleCenter);
                 g.Restore(saved);
             }
         }
@@ -877,6 +908,8 @@ namespace NaneOkey.UI
             if (disposing)
             {
                 _tooltip.Dispose();
+                _rackFont.Dispose();
+                if (_feltCache != null) _feltCache.Dispose();
                 _smallFont.Dispose();
                 _titleFont.Dispose();
                 _tileFont.Dispose();

@@ -7,7 +7,7 @@ namespace NaneOkey.Network
     public static class LanProtocol
     {
         public const int Version = 4;
-        public const string AppVersion = "4.0.0.0";
+        public const string AppVersion = "4.0.1.0";
 
         public static string ModeDisplayName(GameMode mode)
         {

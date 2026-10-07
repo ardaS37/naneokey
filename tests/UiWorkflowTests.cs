@@ -180,7 +180,7 @@ internal static class UiWorkflowTests
             Call(form, "StartLocalGame", Settings(mode), true);
             StopTimers(form);
             var state = Field<GameEngine>(form, "_engine").State;
-            Check(state.Mode == mode && form.Text == GameModeForm.ModeName(mode) + " - v4.0.0.0", "Yerel başlangıç mod/sürüm başlığı yanlış.");
+            Check(state.Mode == mode && form.Text == GameModeForm.ModeName(mode) + " - v4.0.1.0", "Yerel başlangıç mod/sürüm başlığı yanlış.");
             Check(state.Players[0].Hand.Count == (mode == GameMode.ClassicOkey ? 15 : mode == GameMode.Okey101 ? 22 : 15), "Başlayan oyuncunun eli yanlış.");
             Check(state.Players[1].Hand.Count == (mode == GameMode.ClassicOkey ? 14 : mode == GameMode.Okey101 ? 21 : 15), "Diğer oyuncunun eli yanlış.");
             Check(Field<Tile[,]>(form, "_elSlotlari").Cast<Tile>().Count(x => x != null) == state.Players[0].Hand.Count, "Istaka başlangıç elini eksik gösterdi.");
@@ -644,6 +644,23 @@ internal static class UiWorkflowTests
         form.ClientSize = new Size(1008, 689);
         Call(form, "LayoutGameScreen");
         SaveGame(form, useNewAppearance ? "nane-new-appearance.png" : "nane-original-appearance.png");
+        form.ClientSize = new Size(1904, 1001);
+        Call(form, "LayoutGameScreen");
+        Call(form, "RefreshUi");
+        if (useNewAppearance)
+        {
+            var slots = Field<Panel[,]>(form, "_masaSlotPanelleri");
+            Check(slots.Cast<Panel>().Count(x => x.Visible) == 6, "Yeni Nane boş hücreleri tekrar çizmeye başladı.");
+            var table = Field<TraditionalTableView>(form, "_traditionalTable");
+            var left = table.GetOpponentRackBounds(Seat.West);
+            var right = table.GetOpponentRackBounds(Seat.East);
+            var top = table.GetOpponentRackBounds(Seat.North);
+            Check(Math.Abs(left.Top + left.Height / 2 - table.Height / 2) <= 1 && left.Top == right.Top,
+                "Yeni Nane yan ıstakaları ortalanmadı.");
+            Check(left.Height >= 200 && left.Width >= 40 && top.Width >= 300 && top.Height >= 40,
+                "Yeni Nane rakip ıstakaları büyük ekranda küçük kaldı.");
+        }
+        SaveGame(form, useNewAppearance ? "nane-new-fullhd.png" : "nane-original-fullhd.png");
         }
     }
 
@@ -761,7 +778,7 @@ internal static class UiWorkflowTests
 
     private static void StockDragActions(MainForm form)
     {
-        form.ClientSize = new Size(1008, 689);
+        form.ClientSize = new Size(624, 409);
         foreach (GameMode mode in Enum.GetValues(typeof(GameMode)))
         foreach (var newAppearance in mode == GameMode.NaneOkey ? new[] { false, true } : new[] { false })
         {

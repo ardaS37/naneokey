@@ -85,7 +85,7 @@ namespace NaneOkey.UI
 
         private void RefreshTraditionalUi()
         {
-            Text = GameModeForm.ModeName(_engine.State.Mode) + " - v4.0.0.0";
+            Text = GameModeForm.ModeName(_engine.State.Mode) + " - v4.0.1.0";
             if (_tableLayoutMode != _engine.State.Mode || _tableLayoutAppearance != UsesNewTableAppearance) LayoutGameScreen();
             foreach (var button in _solMenusuPaneli.Controls.OfType<Button>())
             {

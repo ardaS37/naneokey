@@ -180,6 +180,8 @@ namespace NaneOkey.UI
         private readonly Panel[,] _elSlotPanelleri = new Panel[HandRows, HandCols];
         private readonly TileView[,] _elTasGorunumleri = new TileView[HandRows, HandCols];
         private float _uiScale = 1F;
+        private float _boardUiScale = 1F;
+        private bool _handNeedsHorizontalScroll;
         private readonly Dictionary<Control, int> _sideMenuOrder = new Dictionary<Control, int>();
         private int _cayAnimasyonAdimi;
         private Image _cayEmoteImage;
@@ -269,6 +271,8 @@ namespace NaneOkey.UI
             SetDoubleBuffered(_oyunPaneli);
             SetDoubleBuffered(_masaPaneli);
             SetDoubleBuffered(_matrisPaneli);
+            SetDoubleBuffered(_boardViewport);
+            SetDoubleBuffered(_handViewport);
             SetDoubleBuffered(_elPaneli);
             SetDoubleBuffered(_elDisPaneli);
             SetDoubleBuffered(_solMenusuPaneli);
@@ -887,6 +891,7 @@ namespace NaneOkey.UI
             _uiScale = IsTraditionalGame
                 ? CalculateTraditionalUiScale(boardWidth, usableHeight - panelGap)
                 : CalculateUiScale(boardWidth, usableHeight - panelGap);
+            _handNeedsHorizontalScroll = GetHandContentWidth() > boardWidth - 18;
             var handHeight = Math.Min(GetHandOuterHeight(), usableHeight - panelGap);
             var boardHeight = Math.Max(1, usableHeight - handHeight - panelGap);
 
@@ -986,27 +991,33 @@ namespace NaneOkey.UI
                 return;
             }
             SetTraditionalTableVisibility(IsNewNaneAppearance);
-            var tileWidth = GetTileWidth();
-            var tileHeight = GetTileHeight();
+            var margin = IsNewNaneAppearance ? 84 : 36;
+            var header = IsNewNaneAppearance ? 84 : 44;
+            var footer = IsNewNaneAppearance ? 76 : 84;
+            _boardUiScale = CalculateBoardUiScale(Math.Max(1, _masaPaneli.ClientSize.Width - margin * 2),
+                Math.Max(1, _masaPaneli.ClientSize.Height - header - footer));
+            var tileWidth = GetBoardTileWidth();
+            var tileHeight = GetBoardTileHeight();
             var boardGapX = GetBoardGapX();
             var boardGapY = GetBoardGapY();
             var matrixWidth = (BoardCols * tileWidth) + ((BoardCols + 1) * boardGapX) + 2;
             var matrixHeight = (BoardRows * tileHeight) + ((BoardRows + 1) * boardGapY) + 2;
-            var margin = IsNewNaneAppearance ? 60 : 36;
-            var header = IsNewNaneAppearance ? 64 : 44;
-            var footer = IsNewNaneAppearance ? 76 : 84;
             var scroll = _boardViewport.AutoScrollPosition;
             _boardViewport.SuspendLayout();
             _boardViewport.AutoScrollPosition = Point.Empty;
+            _boardViewport.AutoScrollMinSize = Size.Empty;
             _boardViewport.SetBounds(margin, header, Math.Max(1, _masaPaneli.ClientSize.Width - margin * 2),
                 Math.Max(1, _masaPaneli.ClientSize.Height - header - footer));
             _boardViewport.BackColor = IsNewNaneAppearance ? Color.FromArgb(24, 91, 61) : _matrisArkaRenk;
-            var matrixLeft = Math.Max(0, (_boardViewport.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - matrixWidth) / 2);
-            var matrixTop = Math.Max(0, (_boardViewport.ClientSize.Height - SystemInformation.HorizontalScrollBarHeight - matrixHeight) / 2);
+            var matrixLeft = Math.Max(0, (_boardViewport.Width - matrixWidth) / 2);
+            var matrixTop = Math.Max(0, (_boardViewport.Height - matrixHeight) / 2);
             _matrisPaneli.SetBounds(matrixLeft, matrixTop, matrixWidth, matrixHeight);
             _boardViewport.AutoScrollMinSize = new Size(matrixWidth + matrixLeft, matrixHeight + matrixTop);
             _boardViewport.ResumeLayout(true);
-            _boardViewport.AutoScrollPosition = new Point(-scroll.X, -scroll.Y);
+            _boardViewport.AutoScrollPosition = matrixWidth <= _boardViewport.ClientSize.Width && matrixHeight <= _boardViewport.ClientSize.Height
+                ? Point.Empty : new Point(-scroll.X, -scroll.Y);
+            if (!_boardViewport.HorizontalScroll.Visible && !_boardViewport.VerticalScroll.Visible)
+                _matrisPaneli.Location = new Point(matrixLeft, matrixTop);
 
             for (var row = 0; row < BoardRows; row++)
             {
@@ -1083,8 +1094,9 @@ namespace NaneOkey.UI
             var scroll = _handViewport.AutoScrollPosition;
             _handViewport.SuspendLayout();
             _handViewport.AutoScrollPosition = Point.Empty;
+            _handViewport.AutoScrollMinSize = Size.Empty;
             _handViewport.SetBounds(8, 4, Math.Max(1, _elDisPaneli.ClientSize.Width - 16), Math.Max(1, _elDisPaneli.ClientSize.Height - 8));
-            _elPaneli.SetBounds(0, 0, Math.Max(_handViewport.ClientSize.Width, gridWidth + 18), panelHeight);
+            _elPaneli.SetBounds(0, 0, Math.Max(_handViewport.Width, gridWidth + 18), panelHeight);
             _handViewport.AutoScrollMinSize = _elPaneli.Size;
             _handViewport.ResumeLayout(true);
             _handViewport.AutoScrollPosition = new Point(-scroll.X, 0);
@@ -2682,6 +2694,9 @@ namespace NaneOkey.UI
             int visualMode,
             ref TileView tileView)
         {
+            // Empty felt positions do not need 220 transparent child-window repaints.
+            if (sourceKind == TileSourceKind.Board)
+                panel.Visible = !IsNewNaneAppearance || tile != null;
             if (tile == null)
             {
                 if (tileView != null && tileView.Visible)
@@ -2727,9 +2742,10 @@ namespace NaneOkey.UI
                 tileView.FaceDown = faceDown;
             }
 
-            if (tileView.Width != GetTileWidth() || tileView.Height != GetTileHeight())
+            if (tileView.Width != (sourceKind == TileSourceKind.Board ? GetBoardTileWidth() : GetTileWidth()) ||
+                tileView.Height != (sourceKind == TileSourceKind.Board ? GetBoardTileHeight() : GetTileHeight()))
             {
-                ApplyTileViewSize(tileView);
+                ApplyTileViewSize(tileView, sourceKind == TileSourceKind.Board);
                 changed = true;
             }
 
@@ -2752,7 +2768,7 @@ namespace NaneOkey.UI
                 RotationQuarterTurns = visualMode == 1 ? 2 : 0,
                 FaceDown = visualMode == 2
             };
-            ApplyTileViewSize(tileView);
+            ApplyTileViewSize(tileView, sourceKind == TileSourceKind.Board);
 
             tileView.MouseDown += (_, args) =>
             {
@@ -2882,7 +2898,7 @@ namespace NaneOkey.UI
             StopAnimation();
             _aktifSurukleme = dragData;
             _suruklemeOfseti = new Point(
-                dragData.GroupClickedOffset * (GetTileWidth() + (sourceKind == TileSourceKind.Hand ? GetHandGapX() : GetBoardGapX())) + mouseOffset.X,
+                dragData.GroupClickedOffset * (sourceKind == TileSourceKind.Hand ? GetTileWidth() + GetHandGapX() : GetBoardTileWidth() + GetBoardGapX()) + mouseOffset.X,
                 mouseOffset.Y);
             _aktifSuruklemeTus = MouseButtons.Right;
             RemoveFromSource(dragData);
@@ -2984,11 +3000,6 @@ namespace NaneOkey.UI
                 EndCustomDrag(!moved);
                 if (moved)
                 {
-                    RenderTiles();
-                    _elDisPaneli.Invalidate(true);
-                    _masaPaneli.Invalidate(true);
-                    _elDisPaneli.Refresh();
-                    _masaPaneli.Refresh();
                     SendLivePreviewIfNeeded();
                 }
                 RefreshUi();
@@ -3002,11 +3013,6 @@ namespace NaneOkey.UI
                 EndCustomDrag(!moved);
                 if (moved)
                 {
-                    RenderTiles();
-                    _elDisPaneli.Invalidate(true);
-                    _masaPaneli.Invalidate(true);
-                    _elDisPaneli.Refresh();
-                    _masaPaneli.Refresh();
                     SendLivePreviewIfNeeded();
                 }
                 RefreshUi();
@@ -3273,8 +3279,8 @@ namespace NaneOkey.UI
             {
                 var point = _matrisPaneli.PointToClient(screenPoint);
                 if (!_matrisPaneli.ClientRectangle.Contains(point)) return null;
-                var row = Math.Max(0, Math.Min(BoardRows - 1, (point.Y - GetBoardGapY()) / (GetTileHeight() + GetBoardGapY())));
-                var col = Math.Max(0, Math.Min(BoardCols - 1, (point.X - GetBoardGapX()) / (GetTileWidth() + GetBoardGapX())));
+                var row = Math.Max(0, Math.Min(BoardRows - 1, (point.Y - GetBoardGapY()) / (GetBoardTileHeight() + GetBoardGapY())));
+                var col = Math.Max(0, Math.Min(BoardCols - 1, (point.X - GetBoardGapX()) / (GetBoardTileWidth() + GetBoardGapX())));
                 return new Point(row, col);
             }
             for (var row = 0; row < BoardRows; row++)
@@ -3344,7 +3350,6 @@ namespace NaneOkey.UI
                 {
                     parent.Controls.Remove(_suruklemeOnizleme);
                     parent.Invalidate(previewBounds);
-                    parent.Refresh();
                 }
                 _suruklemeOnizleme.Dispose();
                 _suruklemeOnizleme = null;
@@ -3515,8 +3520,8 @@ namespace NaneOkey.UI
         {
             if (data != null && data.IsGroupDrag && data.GroupTiles != null && data.GroupTiles.Count > 0)
             {
-                var tileWidth = GetTileWidth();
-                var tileHeight = GetTileHeight();
+                var tileWidth = data.SourceKind == TileSourceKind.Board ? GetBoardTileWidth() : GetTileWidth();
+                var tileHeight = data.SourceKind == TileSourceKind.Board ? GetBoardTileHeight() : GetTileHeight();
                 var gap = data.SourceKind == TileSourceKind.Hand ? GetHandGapX() : GetBoardGapX();
                 var preview = new Panel
                 {
@@ -3536,7 +3541,7 @@ namespace NaneOkey.UI
                         Left = index * (tileWidth + gap),
                         Top = 0
                     };
-                    ApplyTileViewSize(tileView);
+                    ApplyTileViewSize(tileView, data.SourceKind == TileSourceKind.Board);
                     preview.Controls.Add(tileView);
                 }
 
@@ -3549,7 +3554,7 @@ namespace NaneOkey.UI
                 FaceDown = visualMode == 2,
                 Enabled = false
             };
-            ApplyTileViewSize(singlePreview);
+            ApplyTileViewSize(singlePreview, data.SourceKind == TileSourceKind.Board);
             return singlePreview;
         }
 
@@ -6114,6 +6119,7 @@ namespace NaneOkey.UI
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             _dragScrollTimer.Dispose();
+            if (_newNaneFeltCache != null) _newNaneFeltCache.Dispose();
             base.OnFormClosed(e);
             _host?.Dispose();
             _client?.Dispose();
@@ -6211,7 +6217,7 @@ namespace NaneOkey.UI
         private void DrawBoardSurface(object sender, PaintEventArgs e)
         {
             if (IsTraditionalGame) return;
-            if (IsNewNaneAppearance) { DrawNewNaneFelt(e.Graphics, ((Control)sender).ClientRectangle, e.ClipRectangle); return; }
+            if (IsNewNaneAppearance) { PaintCachedNewNaneFelt(e.Graphics, Point.Empty); return; }
             var rect = ((Control)sender).ClientRectangle;
             using (var brush = new System.Drawing.Drawing2D.LinearGradientBrush(rect, _tahtaAcikRenk, _tahtaKoyuRenk, 90F))
             {
@@ -6251,6 +6257,28 @@ namespace NaneOkey.UI
             return CalculateTraditionalUiScale(boardWidth, availableHeight);
         }
 
+        private float CalculateBoardUiScale(int width, int height)
+        {
+            // The rack keeps its readable size; fit the ten-row board independently.
+            var low = 0.58D;
+            var high = Math.Max(low, _uiScale);
+            for (var iteration = 0; iteration < 24; iteration++)
+            {
+                var scale = (low + high) / 2;
+                var tileWidth = Math.Max(1, (int)Math.Round(TileWidth * scale));
+                var tileHeight = Math.Max(1, (int)Math.Round(TileHeight * scale));
+                var gapX = Math.Max(1, (int)Math.Round(BoardGapX * scale));
+                var gapY = Math.Max(1, (int)Math.Round(BoardGapY * scale));
+                if (BoardCols * tileWidth + (BoardCols + 1) * gapX + 2 <= width &&
+                    BoardRows * tileHeight + (BoardRows + 1) * gapY + 2 <= height) low = scale;
+                else high = scale;
+            }
+            return (float)Math.Max(0.58D, low - 0.00001D);
+        }
+
+        private int GetBoardTileWidth() { return Math.Max(1, (int)Math.Round(TileWidth * _boardUiScale)); }
+        private int GetBoardTileHeight() { return Math.Max(1, (int)Math.Round(TileHeight * _boardUiScale)); }
+
         private int GetTileWidth()
         {
             return Math.Max(1, (int)Math.Round(TileWidth * _uiScale));
@@ -6263,12 +6291,12 @@ namespace NaneOkey.UI
 
         private int GetBoardGapX()
         {
-            return Math.Max(1, (int)Math.Round(BoardGapX * _uiScale));
+            return Math.Max(1, (int)Math.Round(BoardGapX * _boardUiScale));
         }
 
         private int GetBoardGapY()
         {
-            return Math.Max(1, (int)Math.Round(BoardGapY * _uiScale));
+            return Math.Max(1, (int)Math.Round(BoardGapY * _boardUiScale));
         }
 
         private int GetHandGapX()
@@ -6283,7 +6311,13 @@ namespace NaneOkey.UI
 
         private int GetHandOuterHeight()
         {
-            return (GetTileHeight() * HandRows) + (GetHandGapY() * (HandRows - 1)) + 24 + SystemInformation.HorizontalScrollBarHeight;
+            return (GetTileHeight() * HandRows) + (GetHandGapY() * (HandRows - 1)) + 24 +
+                (_handNeedsHorizontalScroll ? SystemInformation.HorizontalScrollBarHeight : 0);
+        }
+
+        private int GetHandContentWidth()
+        {
+            return HandCols * GetTileWidth() + (HandCols - 1) * GetHandGapX() + 18;
         }
 
         private int GetHandGridStartX()
@@ -6292,15 +6326,15 @@ namespace NaneOkey.UI
             return Math.Max(8, (_elPaneli.ClientSize.Width - gridWidth) / 2);
         }
 
-        private void ApplyTileViewSize(TileView tileView)
+        private void ApplyTileViewSize(TileView tileView, bool board = false)
         {
             if (tileView == null)
             {
                 return;
             }
 
-            tileView.Width = GetTileWidth();
-            tileView.Height = GetTileHeight();
+            tileView.Width = board ? GetBoardTileWidth() : GetTileWidth();
+            tileView.Height = board ? GetBoardTileHeight() : GetTileHeight();
         }
 
         private static Color DarkenColor(Color color, int amount)

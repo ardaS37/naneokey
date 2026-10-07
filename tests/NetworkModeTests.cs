@@ -162,7 +162,7 @@ internal static class NetworkModeTests
                 }));
                 var reader = new StreamReader(oldClient.GetStream());
                 var reply = LanJson.Deserialize<LanEnvelope>(reader.ReadLine());
-                Check(reply.Type == "text" && reply.Payload.Contains("4.0.0.0"), "Eski LAN sürümü anlaşılır şekilde reddedilmedi.");
+                Check(reply.Type == "text" && reply.Payload.Contains("4.0.1.0"), "Eski LAN sürümü anlaşılır şekilde reddedilmedi.");
             }
         }
     }

@@ -11,6 +11,7 @@ namespace NaneOkey.UI
     public sealed partial class MainForm
     {
         private TraditionalTableView _traditionalTable;
+        private Bitmap _newNaneFeltCache;
         private GameMode? _tableLayoutMode;
         private bool _tableLayoutAppearance;
         private bool IsNewNaneAppearance { get { return _engine.State.Mode == GameMode.NaneOkey && _engine.State.UseNewAppearance; } }
@@ -115,8 +116,21 @@ namespace NaneOkey.UI
         {
             if (!IsNewNaneAppearance) return;
             var origin = _masaPaneli.PointToClient(((Control)sender).PointToScreen(Point.Empty));
-            DrawNewNaneFelt(e.Graphics, new Rectangle(-origin.X, -origin.Y,
-                _masaPaneli.ClientSize.Width, _masaPaneli.ClientSize.Height), e.ClipRectangle);
+            PaintCachedNewNaneFelt(e.Graphics, origin);
+        }
+
+        private void PaintCachedNewNaneFelt(Graphics graphics, Point origin)
+        {
+            var size = _masaPaneli.ClientSize;
+            if (size.Width < 1 || size.Height < 1) return;
+            if (_newNaneFeltCache == null || _newNaneFeltCache.Size != size)
+            {
+                if (_newNaneFeltCache != null) _newNaneFeltCache.Dispose();
+                _newNaneFeltCache = new Bitmap(size.Width, size.Height);
+                using (var surface = Graphics.FromImage(_newNaneFeltCache))
+                    DrawNewNaneFelt(surface, new Rectangle(Point.Empty, size), new Rectangle(Point.Empty, size));
+            }
+            graphics.DrawImageUnscaled(_newNaneFeltCache, -origin.X, -origin.Y);
         }
 
         private static void DrawNewNaneFelt(Graphics graphics, Rectangle bounds, Rectangle clip)
@@ -142,10 +156,15 @@ namespace NaneOkey.UI
 
         private float CalculateTraditionalUiScale(int width, int height)
         {
-            // Eighteen visible positions leave room to arrange a hand without making every piece tiny.
-            // Extra positions and Nane's full board use the scroll viewports.
+            // Fit all 24 positions when the window can do so at a readable size.
+            // Include both panel borders and the rack's inner/outer padding (36 pixels).
+            // Smaller windows keep readable pieces and scroll only when necessary.
             var low = 0.84D;
             var high = 1.55D;
+            var minimumWidth = (int)Math.Round(TileWidth * low);
+            var minimumGap = Math.Max(1, (int)Math.Round(HandGapX * low));
+            var fitWholeRack = HandCols * minimumWidth + (HandCols - 1) * minimumGap + 36 <= width;
+            var visibleColumns = fitWholeRack ? HandCols : 18;
             var tableBudget = Math.Min(_engine.State.Mode == GameMode.Okey101 ? 260 : 240, Math.Max(120, height * 0.55));
             for (var i = 0; i < 24; i++)
             {
@@ -153,8 +172,8 @@ namespace NaneOkey.UI
                 var tileWidth = Math.Max(1, (int)Math.Round(TileWidth * scale));
                 var tileHeight = Math.Max(1, (int)Math.Round(TileHeight * scale));
                 var gap = Math.Max(1, (int)Math.Round(HandGapX * scale));
-                if (18 * tileWidth + 17 * gap + 36 <= width &&
-                    HandRows * tileHeight + gap + 24 + SystemInformation.HorizontalScrollBarHeight + tableBudget <= height) low = scale;
+                if (visibleColumns * tileWidth + (visibleColumns - 1) * gap + 36 <= width &&
+                    HandRows * tileHeight + gap + 24 + (fitWholeRack ? 0 : SystemInformation.HorizontalScrollBarHeight) + tableBudget <= height) low = scale;
                 else high = scale;
             }
             return (float)Math.Max(0.84D, low - 0.00001D);
@@ -167,6 +186,19 @@ namespace NaneOkey.UI
             SetTraditionalTableVisibility(true);
             _traditionalTable.Bounds = _masaPaneli.ClientRectangle;
             var state = _engine.State;
+            if (IsNewNaneAppearance)
+            {
+                _traditionalTable.State = state;
+                _traditionalTable.LocalSeat = _yerelKoltuk;
+                _traditionalTable.SeatScores = state.Players.ToDictionary(x => x.Seat,
+                    x => _totalScores.ContainsKey(x.Name) ? _totalScores[x.Name] : 0);
+                _traditionalTable.CanAct = _oyunBasladi && CanHumanAct(false);
+                _traditionalTable.NaneCanDraw = _traditionalTable.CanAct;
+                _traditionalTable.NaneStockBounds = _desteEtiketi.Bounds;
+                _traditionalTable.SendToBack();
+                _boardViewport.BringToFront();
+                return;
+            }
             var melds = state.TurnInProgress ? state.TurnTable : state.Table;
             var originalIds = new HashSet<int>(state.Table.SelectMany(x => x.Tiles).Select(x => x.Id));
             var newlyOpened = melds.Where(x => x.OwnerSeat == _yerelKoltuk && !x.Tiles.Any(t => originalIds.Contains(t.Id))).ToList();
